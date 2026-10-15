@@ -1,0 +1,12 @@
+# Layout checker allow list (tools/layout_check.py): issues that are part of the design.
+# <video> <RULE> <regex on the reported element(s)>...   # reason
+20 OVERLAP C_OnlyWhenChanged/PhoneHUD C_OnlyWhenChanged/SmallPage   # the "smaller page" teaser is laid over the phone on purpose
+20 OVERLAP O_Overdraw/PhoneHUD O_Overdraw/OverdrawHeat               # the heatmap is drawn over the phone screen
+13 OVERLAP I_Segregation/D/(Enemy|Player) I_Segregation/D/Pill   # name labels sit on the characters' feet on purpose
+21 OVERLAP P_TapToSelect/(PhoneHUD|Icon_tap|Camera) P_TapToSelect/(Icon_tap|RayBeam)   # the tap icon sits on the phone screen; the camera ray ends at the tap point
+22 OVERLAP M_Actions/W_M0 M_Actions/ErrorToast   # the exception toast is laid over the Input.GetMouseButtonDown line on purpose
+23 OVERLAP G_Gpu/PhoneHUD G_Gpu/OverdrawHeat   # the overdraw heatmap is drawn over the phone screen
+23 OVERLAP T_Thermal/Hot T_Thermal/PhoneHUD   # the heat glow sits behind the phone on purpose
+12 OVERLAP C_Clocks/TickRuler C_Clocks/Pill   # ms / "0 steps" labels sit on the ruler next to the ticks they name
+12 OVERLAP D_Smooth/CurvePlot D_Smooth/Pill   # the caption pill sits inside the empty upper-right of the plot
+12 OVERLAP R_Recap/Shade R_Recap/Badge   # the badges sit on the dark panel behind them

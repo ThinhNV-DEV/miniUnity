@@ -1,0 +1,23 @@
+<Project>
+  <!-- Settings shared by the engine (MiniUnity.csproj) and hosts that compile a project's Unity code against it
+       (e.g. Tools/MiniUnityVideo/MiniUnity.Video.csproj in the VideoRecreate repo). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+    <!-- Only warnings that occur in this code base (checked with NoWarn emptied): Unity-style code and stubs.
+         CS0649 / CS0169 / CS0414 / CS0219: serialized fields assigned by the serializer, fields kept for layout;
+         CS0108 / CS0114: stubs re-declare members of their Unity base classes (new / override as in the DLL metadata);
+         CS0282: partial structs split between stubs and hand-written members; CS0618: Unity APIs the packages still call;
+         CS8632: nullable annotations in package sources compiled without a nullable context; CS8981: lowercase type names
+         in package sources; SYSLIB0050: FieldInfo.IsNotSerialized / Type.IsSerializable, which mirror Unity's own rules. -->
+    <NoWarn>$(NoWarn);CS0649;CS0169;CS0414;CS0219;CS0108;CS0114;CS0282;CS0618;CS8632;CS8981;SYSLIB0050</NoWarn>
+    <DefineConstants>$(DefineConstants);UNITY_EDITOR;UNITY_2022_3_OR_NEWER;UNITY_2022_2_OR_NEWER;UNITY_2022_1_OR_NEWER;UNITY_2021_3_OR_NEWER;UNITY_2021_2_OR_NEWER;UNITY_2021_1_OR_NEWER;UNITY_2020_3_OR_NEWER;UNITY_2020_2_OR_NEWER;UNITY_2020_1_OR_NEWER;UNITY_2019_4_OR_NEWER;UNITY_2019_3_OR_NEWER;UNITY_2019_2_OR_NEWER;UNITY_2019_1_OR_NEWER;UNITY_2018_4_OR_NEWER;UNITY_2018_3_OR_NEWER;UNITY_2018_2_OR_NEWER;UNITY_2018_1_OR_NEWER;UNITY_2017_1_OR_NEWER;UNITY_5_3_OR_NEWER;UNITY_2022_3;UNITY_2022;UNITY_STANDALONE;UNITY_STANDALONE_LINUX;UNITY_EDITOR_LINUX;CSHARP_7_3_OR_NEWER;ENABLE_MONO;NET_STANDARD_2_1;TIMELINE_FRAMEACCURATE;UGUI_TIMELINE;CINEMACHINE_TIMELINE;CINEMACHINE_UGUI;CINEMACHINE_UNITY_ANIMATION;CINEMACHINE_UNITY_IMGUI;CINEMACHINE_PHYSICS;CINEMACHINE_PHYSICS_2D;PACKAGE_INPUT_SYSTEM_EXISTS_FALSE;MINIUNITY</DefineConstants>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <MiniUnityEngineDir>$(MSBuildThisFileDirectory)</MiniUnityEngineDir>
+    <MiniUnityCache>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../.cache/'))</MiniUnityCache>
+  </PropertyGroup>
+</Project>

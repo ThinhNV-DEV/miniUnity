@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- MiniUnity engine: Unity API on .NET (hand-written core + generated stubs + decompiled managed code + package sources),
+       the `ua` agent commands and the MCP server. Project-specific code (a project's own builders, games) is compiled by a host
+       project that references this one. Generated inputs (Engine/Generated, Engine/Decompiled, Engine/Transformed) come from
+       ../setup.sh. -->
+  <Import Project="MiniUnity.Common.props" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>MiniUnity</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Core/**/*.cs;Shims/**/*.cs" />
+    <Compile Include="Generated/**/*.cs;Decompiled/**/*.cs" />
+    <!-- package sources (fetched by setup.sh at the versions in Packages/packages-lock.json) -->
+    <Compile Include="$(MiniUnityCache)packages/com.unity.timeline/Runtime/**/*.cs" Link="Pkg/Timeline/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MiniUnityCache)packages/com.unity.ugui/Runtime/**/*.cs" Link="Pkg/UGUI/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MiniUnityCache)packages/com.unity.textmeshpro/Scripts/Runtime/**/*.cs" Link="Pkg/TMP/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MiniUnityCache)packages/com.unity.cinemachine/Runtime/**/*.cs" Link="Pkg/Cinemachine/%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MiniUnityCache)packages/litmotion/Ease.cs;$(MiniUnityCache)packages/litmotion/EaseUtility.cs" Link="Pkg/LitMotion/%(Filename)%(Extension)" />
+    <Compile Remove="$(MiniUnityCache)packages/**/AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- hosts reach the engine internals they drive (main thread, asset index, renderer statistics…) -->
+    <InternalsVisibleTo Include="MiniUnity.Video" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Roslyn for `ua compile` (C# 9 like Unity 2022.3), Mono.Cecil to patch the portable NUnit to Unity's ABI (Agent/NUnitAbi.cs) -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <PackageReference Include="Mono.Cecil" Version="0.11.5" />
+    <!-- managed Ogg Vorbis / MP3 decoders for AudioClips (no ffmpeg needed) -->
+    <PackageReference Include="NVorbis" Version="0.10.5" />
+    <PackageReference Include="NLayer" Version="1.16.0" />
+  </ItemGroup>
+  <!-- Mono float semantics: scripts/monofloat.sh writes rewritten copies of the math sources and this props file -->
+  <Import Project="Transformed.props" Condition="Exists('Transformed.props') And '$(MonoFloat)' != '0'" />
+</Project>
