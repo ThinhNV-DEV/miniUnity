@@ -210,6 +210,9 @@ namespace MiniUnity
             return la;
         }
 
+        /// <summary>Objects of an asset from documents read elsewhere (a binary import artifact).</summary>
+        internal static void LoadDocsInto(LoadedAsset la, List<YDoc> docs) => LoadYaml(la, docs);
+
         static void LoadYaml(LoadedAsset la, List<YDoc> preloaded = null)
         {
             var docs = preloaded ?? YamlReader.ReadFile(AssetIndex.Abs(la.Path));
@@ -318,8 +321,9 @@ namespace MiniUnity
                     if ((int)pt >= 0) return builtinCache[(guid, fileID)] = BuiltinResources.PrimitiveMesh(pt, fileID);
                 }
                 if (guid == "0000000000000000f000000000000000" && fileID == 10303) return builtinCache[(guid, fileID)] = BuiltinResources.DefaultMaterial;
+                if (guid == "0000000000000000f000000000000000" && fileID == 10304) return builtinCache[(guid, fileID)] = BuiltinResources.DefaultSkybox;
                 Type t = expected;
-                if (t == null || t.IsAbstract || t == typeof(Object)) t = fileID switch { 10770 or 10753 or 46 or 10755 or 10752 or 10750 or 10751 or 211 or 17 => typeof(Shader), 10754 or 10303 or 10304 or 10302 => typeof(Material), 10905 or 10906 or 10907 or 10908 or 10910 or 10911 or 10913 or 10915 or 10917 => typeof(Sprite), 10102 or 10100 => typeof(Font), _ => typeof(Texture2D) };
+                if (t == null || t.IsAbstract || t == typeof(Object)) t = fileID switch { 10770 or 10753 or 46 or 10755 or 10752 or 10750 or 10751 or 211 or 17 or 103 or 104 or 106 or 108 => typeof(Shader), 10754 or 10303 or 10304 or 10302 => typeof(Material), 10905 or 10906 or 10907 or 10908 or 10910 or 10911 or 10913 or 10915 or 10917 => typeof(Sprite), 10102 or 10100 => typeof(Font), _ => typeof(Texture2D) };
                 if (!typeof(Object).IsAssignableFrom(t) || t.IsAbstract) return null;
                 Object o;
                 try { o = (Object)Activator.CreateInstance(t, true); } catch { return null; }

@@ -426,9 +426,29 @@ namespace MiniUnity
                 var ro = v as RectOffset;
                 return new YMap().Add("m_Left", YScalar.Of(ro?.m_LeftV ?? 0)).Add("m_Right", YScalar.Of(ro?.m_RightV ?? 0)).Add("m_Top", YScalar.Of(ro?.m_TopV ?? 0)).Add("m_Bottom", YScalar.Of(ro?.m_BottomV ?? 0));
             }
-            if (t == typeof(Gradient) || t == typeof(GUIStyle) || t == typeof(Hash128) || t == typeof(BoundsInt))
+            if (t == typeof(Gradient)) return (v as Gradient ?? new Gradient()).ToYaml();
+            if (t == typeof(GUIStyle) || t == typeof(Hash128) || t == typeof(BoundsInt))
                 throw new NotImplementedException("serialize " + t.Name);
             return null;
+        }
+
+        /// <summary>Unity Editor fills unassigned serialized Object fields of MonoBehaviours with a "fake null" (MU_FAKE_NULL=0 turns it off):
+        /// `== null` and `if (x)` are true / false as for null, but using it throws UnassignedReferenceException (never assigned) or
+        /// MissingReferenceException (the referenced object is gone) with Unity's message instead of a NullReferenceException.
+        /// Abstract field types get a real null.</summary>
+        public static readonly bool FakeNull = Environment.GetEnvironmentVariable("MU_FAKE_NULL") != "0";
+
+        internal static Object FakeNullFor(Type t, string field, string owner, bool missing)
+        {
+            if (!FakeNull || t.IsAbstract || t.ContainsGenericParameters || t.IsInterface) return null;
+            Object o;
+            try { o = (Object)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(t); }
+            catch { return null; }
+            o.m_Destroyed = true; o.m_FakeNullMissing = missing; o.m_Name = "";
+            o.m_FakeNull = missing
+                ? $"The variable {field} of {owner} doesn't exist anymore.\nYou probably need to reassign the {field} variable of the '{owner}' script in the inspector."
+                : $"The variable {field} of {owner} has not been assigned.\nYou probably need to assign the {field} variable of the {owner} script in the inspector.";
+            return o;
         }
 
         /// <summary>Unity never leaves serialized collection / [Serializable] class fields null on new objects.</summary>
@@ -448,7 +468,7 @@ namespace MiniUnity
                 if (t == typeof(string)) f.SetValue(o, "");
                 else if (t.IsArray) f.SetValue(o, Array.CreateInstance(t.GetElementType(), 0));
                 else if (IsList(t)) f.SetValue(o, Activator.CreateInstance(t));
-                else if (typeof(Object).IsAssignableFrom(t)) continue;
+                else if (typeof(Object).IsAssignableFrom(t)) { if (depth == 0 && o is MonoBehaviour owner) f.SetValue(o, FakeNullFor(t, f.Name, owner.GetType().Name, false)); continue; }
                 else if (t == typeof(AnimationCurve)) f.SetValue(o, new AnimationCurve());
                 else if (!t.IsValueType && !t.IsAbstract)
                 {
@@ -574,6 +594,9 @@ namespace MiniUnity
                 {
                     var cur = f.GetValue(o);
                     var v = NodeToValue(n, f.FieldType, cur, resolve, depth);
+                    // a reference to something that no longer resolves: Unity's "missing" fake null
+                    if (v == null && depth == 0 && n is YRef r && !r.IsNull && typeof(Object).IsAssignableFrom(f.FieldType) && o is MonoBehaviour)
+                        v = FakeNullFor(f.FieldType, f.Name, o.GetType().Name, true);
                     f.SetValue(o, v);
                 }
                 catch (Exception e) when (!Strict) { Debug.LogWarning($"[deser] {t.Name}.{f.Name}: {e.Message}"); Problem($"read {t.Name}.{f.Name} from YAML", e); }
@@ -661,7 +684,8 @@ namespace MiniUnity
             if (t == typeof(AnimationCurve)) return ReadCurve(n);
             if (t == typeof(Matrix4x4)) { var m = n as YMap; var mm = new Matrix4x4(); for (int i = 0; i < 4; i++) for (int j = 0; j < 4; j++) mm[i, j] = F(m?[$"e{i}{j}"]); return mm; }
             if (t == typeof(RectOffset)) { var m = n as YMap; return new RectOffset(Int(m?["m_Left"], 0), Int(m?["m_Right"], 0), Int(m?["m_Top"], 0), Int(m?["m_Bottom"], 0)); }
-            if (t == typeof(Gradient) || t == typeof(GUIStyle) || t == typeof(Hash128) || t == typeof(BoundsInt)) return cur;
+            if (t == typeof(Gradient)) return Gradient.FromYaml(n);
+            if (t == typeof(GUIStyle) || t == typeof(Hash128) || t == typeof(BoundsInt)) return cur;
             return null;
         }
 

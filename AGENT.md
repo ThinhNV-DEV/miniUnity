@@ -53,6 +53,9 @@ compile tăng dần rồi nạp như `play`, cần Unity Editor; project lỗi c
 | Package | `pkg.list` · `pkg.info` · `pkg.search` · `pkg.add` · `pkg.remove` · `pkg.deps` · `pkg.resolve [--fetch] [--write-lock]` | Resolve như Unity Package Manager (dependency trực tiếp thắng, sau đó version cao nhất); `--fetch` tải source về `Library/PackageCache` |
 | Addressables | `addr.info` · `addr.init` · `addr.group.*` · `addr.entries` · `addr.entry.add/remove/set` · `addr.label.add/remove` · `addr.schema.get/set` · `addr.analyze` | `addr.analyze`: dependency ngầm bị nhân đôi giữa group, entry thiếu, scene vừa addressable vừa ở Build Settings, address trùng |
 | Compile | `compile.assemblies` · `compile [--platform] [--assembly] [--warnings] [--no-emit]` | Theo luật của Unity: asmdef/asmref, define constraints, version defines, platform, `overrideReferences`, plugin DLL, assembly predefined; lỗi kèm `file:line` |
+| API gap | `apigap [--all] [--assembly a,b] [--from play.json,test.json] [--play scene [--frames n]] [--max n]` | API Unity mà project gọi nhưng MiniUnity chỉ có stub (`NotImplementedException`) hoặc thiếu hẳn, xếp theo số chỗ gọi, kèm `file:line` (quét IL của assembly đã compile); `--from` / `--play` thêm số lần thật sự gặp lúc chạy. `--all` gồm cả assembly của package |
+| Editor UI | `menu "<Menu/Path>"` · `window <WindowType \| "Menu/Path"> [--set "Label=v;…"] [--click "Button;…"]` | Chạy code editor của project không cần Unity: `menu` gọi `[MenuItem]` (tôn trọng hàm validate), `window` mở EditorWindow rồi chạy `OnGUI` qua IMGUI headless: pass Layout → pass áp mọi `--set` (khớp theo label, `ObjectField` nhận đường dẫn asset) → một pass cho mỗi `--click` → pass Repaint; trả về danh sách control (kind, label, value, enabled, indent, options), log và exception. Control không khớp hoặc nút bị disable là lỗi. Window dùng UI Toolkit chưa hỗ trợ. Các overload `GUI` / `GUILayout` / `EditorGUI` / `EditorGUILayout` sinh bằng `tools/imgui_gen.py` (chạy lại sau `gen_stubs.sh` khi đổi bản Unity) |
+| Binary asset | `serialized.dump <file> [--type T] [--name x] [--id pathID] [--yaml] [--max n]` | Đọc SerializedFile nhị phân của Unity (version 17–22, có type tree: `Library/Artifacts/**`, `Editor/Data/Resources/unity_builtin_extra`, file trong asset bundle): liệt kê object (type, pathID, tên), `--id` / `--yaml` in field dưới dạng YAML như asset text. Model (FBX, OBJ, …) mà MiniUnity không tự import được thì lấy kết quả import của Unity trong `Library/Artifacts` (mesh, material, avatar, clip, prefab của model) khi project đã mở trong Unity một lần |
 | Test | `test [--mode editmode\|playmode\|all] [--filter] [--category] [--list] [--input …]` | NUnit + Unity Test Framework: `[Test]`, `[TestCase]`, `[TestCaseSource]`, `[UnityTest]`, SetUp/TearDown (cả Unity\*), OneTimeSetUp, `[Ignore]`, `[Explicit]`, `[Category]`, `LogAssert` |
 | Runtime | `play <scene> [--frames n \| --seconds s] [--watch …] [--input …] [--audio-out mix.wav] [--size WxH] [--screenshot f.png[@t1,t2]] [--call "Obj/Comp.Method@t"]` | Xem bên dưới |
 | Bench | `bench [--only physics3d,physics2d,raycast,animation,render3d] [--bodies n] [--frames n] [--size WxH] [--scene s.unity] [--png f.png]` | Đo ms/frame và cấp phát của tải cố định dựng trong bộ nhớ; `digest` là hash bit-chính-xác (so trước/sau khi tối ưu) |
@@ -80,7 +83,27 @@ frame rate mô phỏng cố định (`--fps 60`):
 
 Awake → OnEnable → Start (cả `IEnumerator Start`) → FixedUpdate (theo `fixedDeltaTime`; Animator `AnimatePhysics` → physics 3D →
 physics 2D → OnTrigger*/OnCollision*) → Update → coroutine (`null`, `WaitForSeconds`, `WaitUntil`/`WaitWhile`, `WaitForFixedUpdate`,
-`WaitForEndOfFrame`, coroutine lồng nhau) → `Invoke`/`InvokeRepeating` → Animator / Animation → LateUpdate → audio (DSP clock).
+coroutine lồng nhau) → `Invoke`/`InvokeRepeating` → Animator / Animation → LateUpdate → pha render của từng camera đang bật (theo
+`depth`: `OnPreCull` → `OnBecameVisible` / `OnWillRenderObject` theo frustum → `OnPreRender` → `OnRenderObject` → `OnPostRender`, cùng
+`Camera.onPreCull/onPreRender/onPostRender`, `Camera.current`; renderer không camera nào thấy nữa nhận `OnBecameInvisible`; không
+rasterize, `MU_RENDER_CALLBACKS=0` để tắt) → `WaitForEndOfFrame` → audio (DSP clock). Khi một camera được rasterize thật (screenshot,
+`record`, `Camera.Render`) chuỗi `OnRenderImage(src, dst)` của nó chạy; `Graphics.Blit` copy / co giãn, và chạy image effect viết bằng
+C# nếu shader của material có trong `ImageEffects.Registry` (có sẵn `Hidden/BlitCopy`, `Unlit/Texture`, `Unlit/Color`).
+`UnityEngine.Random` là xorshift128 như Unity, seed mặc định 0 (`MU_RANDOM_SEED`) để chạy lại cho cùng kết quả.
+Renderer dùng quality level đang chọn trong `ProjectSettings/QualitySettings.asset` (bóng, MSAA): camera vẽ ra màn hình hoặc vào
+RenderTexture tạo bằng script được MSAA 2 mẫu khi level có `antiAliasing` > 1 (như intermediate HDR của Unity; RenderTexture là
+asset thì theo `antiAliasing` của chính nó). Unity Editor dùng level mặc định của build target đang chọn, nên muốn khớp ảnh chụp lúc
+đang ở Android thì đặt `MU_QUALITY_LEVEL=2`; `MU_MSAA=0` tắt MSAA. Skybox (`Skybox/Procedural`, `6 Sided`, `Panoramic`) được vẽ khi
+camera clear bằng Skybox, ambient mode Skybox lấy ánh sáng từ trời, Standard phản chiếu trời theo độ nhám. TextMeshPro 3D (trên
+MeshRenderer) vẽ bằng shader SDF như UI.
+`UnityWebRequest` chạy thật trên HttpClient (Get / Post / Put / Head / Delete, header, upload / download handler Buffer / File /
+Script, redirect, `timeout`, `result` / `responseCode` / `error`, `file://`), hoàn tất trên player loop; ngoài Play mode (lệnh
+`menu` / `window`) `SendWebRequest` chạy xong rồi mới trả về. **Mạng tắt mặc định**: chỉ loopback và `file://`; host khác trả
+`ConnectionError` "network disabled by MiniUnity" trừ khi `MU_NETWORK=1` hoặc `--allow-network host1,host2`.
+AudioMixer: volume / mute / solo / snapshot / exposed parameter như trước; mixer có effect (Lowpass / Highpass (Simple), Echo,
+SFX Reverb, Compressor, Duck Volume, Send / Receive) được trộn theo khối mỗi frame qua bus của từng group, effect chạy theo thứ tự
+trong group với giá trị tham số của snapshot lúc đó. Mixer chỉ có Attenuation giữ đường trộn cũ (WAV không đổi). Effect khác
+(Pitch Shifter, Flange, …) cho tín hiệu đi qua và log cảnh báo một lần.
 `Time.*` chạy theo thời gian mô phỏng. Exception trong code người dùng được log như Unity (loop chạy tiếp) và trả về kèm stack,
 `file:line` đầu tiên trong project và `inner` (vd. `TypeInitializationException`).
 
@@ -135,7 +158,7 @@ Log lỗi/exception không được `LogAssert.Expect` làm test fail (`Unhandle
 Runtime có sẵn: job system (Schedule chạy đồng bộ, `JobHandle.Complete` không phải chờ), `NativeArray`, `UnsafeUtility`, Burst
 (code chạy dạng C# managed), `Hash128`, uGUI/TextMeshPro, Timeline/PlayableGraph, và toàn bộ phần MiniUnity dùng để build video.
 
-**Giới hạn.** Không có networking, input thiết bị thật và rendering trong loop. API Unity mà MiniUnity chưa viết sẽ ném `NotImplementedException("Type.Member")`;
+**Giới hạn.** Không có networking, input thiết bị thật; pha render trong loop chỉ gọi callback, không tạo pixel. API Unity mà MiniUnity chưa viết sẽ ném `NotImplementedException("Type.Member")`;
 exception đó được đánh dấu `"miniunity": "API not implemented by MiniUnity (works in Unity)"` để tách khỏi bug của project.
 Tham chiếu field chưa gán là `null` (`NullReferenceException`; Unity báo `UnassignedReferenceException`). NUnit dùng bản portable
 3.5 (tải một lần từ NuGet vào `~/.nuget/packages`), vì bản Mono của Unity cần remoting `CallContext` mà .NET không có. Bản portable
@@ -165,6 +188,14 @@ khác, đổi mặc định bằng `MINIUNITY_MCP_TIMEOUT`); quá hạn thì c�
 trên một luồng riêng, nên `ping` vẫn được trả lời khi đang bận và `notifications/cancelled` dừng ngay lệnh đang chạy (lệnh đã huỷ không
 có response, theo MCP).
 
+**Chơi tương tác.** `play_start` (`{"scene": "Assets/Main.unity", "options": {"size": "1080x1920"}}`) mở một phiên `play
+--interactive` và giữ nó: `play_input` (cú pháp `--input`, frame tính từ frame kế tiếp, mục không có `@` là bấm một frame; `"step": n`
+chạy thêm n frame), `play_step` (`frames` / `seconds`), `play_screenshot` (ảnh PNG), `play_state` (frame, thời gian, log và exception
+mới, `watch`), `play_stop` (trả bản tóm tắt như `play`). Ngoài MCP: `ua play <scene> --interactive` nhận lệnh JSON từng dòng trên stdin
+(`step`, `input`, `hold` / `release`, `mouse`, `screenshot`, `watch`, `state`, `call`, `quit`), trả lời trên dòng bắt đầu bằng `@mu `;
+`--serve 8090` mở viewer ở `http://127.0.0.1:8090/` để người chơi bằng bàn phím / chuột ngay trong trình duyệt. `OnMouseDown` / `Drag` /
+`Up` / `UpAsButton` / `Enter` / `Over` / `Exit` được gửi như Unity (raycast từ camera vào collider 3D và 2D).
+
 ## Vòng làm việc gợi ý
 
 1. `compile` → sửa lỗi theo `diagnostics[].file:line`.
@@ -184,3 +215,4 @@ MiniUnity: `UNITY_PROJECT=$PWD/.. ./ua.sh test --filter BlockExit.Tests` (23 tes
 | `python3 tests/ua_selftest.py` | ~135 kiểm tra trên project tạm, phủ mọi lệnh `ua`: scene, prefab override, asset / GUID / tham chiếu, package và Addressables (cần mạng; `UA_OFFLINE=1` để bỏ qua), compile / test / play / log (cần Editor), diff / undo, MCP (schema, in-process, timeout), round-trip của file đã sửa |
 | `python3 tests/run_fixtures.py` | 104 fixture runtime (`tests/fixtures`: physics 3D / 2D, joint, wheel, articulation, Animator, humanoid IK, audio, mixer, input, particle, profiler) qua `ua test`; fixture nào có dòng `Run with: … --input "…"` được chạy lại với input đó |
 | `python3 tests/roundtrip.py` | mọi file YAML git theo dõi được đọc rồi ghi lại giống hệt từng byte |
+| `python3 tests/run_oracle.py` | **oracle test** (`tests/oracle/*.cs`): cùng phép đo chạy trên Unity thật và MiniUnity, `Oracle.Report(key, value, tolerance)`; so MiniUnity với giá trị Unity đã commit ở `tests/oracle/expected.json`. Lấy giá trị Unity: `--make-unity-project DIR` → mở bằng Unity 2022.3, chạy mọi PlayMode test (hoặc `Unity -batchmode -projectPath DIR -runTests -testPlatform PlayMode`) → `--import DIR`. Khoá chưa có giá trị Unity được liệt kê là "no reference" |

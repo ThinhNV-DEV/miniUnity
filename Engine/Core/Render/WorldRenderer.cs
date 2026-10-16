@@ -30,6 +30,7 @@ namespace MiniUnity
         {
             public Mesh mesh; public Material mat; public int sub; public Matrix4x4 M; public bool transparent, rounded, receive; public float dist, alpha = 1;
             public Quaternion rot; public Bounds bounds; public ShadowCastingMode cast; public MaterialPropertyBlock block;
+            public bool text;   // TextMeshPro SDF material: drawn by UIRenderer's TMP shader
             public WorldShader shader; public ShaderInputs inputs; public WorldShader.RenderQueue queue;   // C# shader draws
         }
 
@@ -73,10 +74,8 @@ namespace MiniUnity
         {
             var draws = Collect(cam, view);
             if (draws.Count == 0) return;
-            var lights = ObjectRegistry.SceneObjects(typeof(Light), false).Cast<Light>()
-                .Where(l => l.enabled && l.gameObject.activeInHierarchy && l.intensity > 0 && (cam.cullingMask & l.cullingMask) != 0).ToList();
-            // main light = brightest directional (Unity: RenderSettings.sun or the brightest one)
-            var sun = lights.Where(l => l.type == LightType.Directional).OrderByDescending(l => l.intensity * l.color.grayscale).FirstOrDefault();
+            var lights = Lights(cam);
+            var sun = MainLight(lights);
             var shadow = sun != null && sun.shadows != LightShadows.None ? ShadowMap.Build(sun, draws, cam, view.camPos) : null;
             var env = new Env(sun, shadow, lights.Where(l => l != sun && l.type != LightType.Area));
             env.Prepare();
@@ -89,9 +88,19 @@ namespace MiniUnity
             foreach (var d in draws.Where(d => d.shader != null && d.queue == WorldShader.RenderQueue.Opaque)) DrawCustom(d, view, env);
             foreach (var d in draws.Where(d => d.shader != null && d.queue == WorldShader.RenderQueue.AlphaTest)) DrawCustom(d, view, env);
             foreach (var d in draws.Where(d => d.transparent).OrderByDescending(d => d.dist))
-                if (d.shader != null) DrawCustom(d, view, env); else DrawOne(d, view, env, false);
+                if (d.text) UIRenderer.DrawWorldText(d.mesh, d.sub, d.mat, d.M, view);
+                else if (d.shader != null) DrawCustom(d, view, env); else DrawOne(d, view, env, false);
             shadow?.Release();
         }
+
+        static List<Light> Lights(Camera cam) => ObjectRegistry.SceneObjects(typeof(Light), false).Cast<Light>()
+            .Where(l => l.enabled && l.gameObject.activeInHierarchy && l.intensity > 0 && (cam.cullingMask & l.cullingMask) != 0).ToList();
+
+        /// <summary>Main light = brightest directional (Unity: RenderSettings.sun or the brightest one).</summary>
+        static Light MainLight(List<Light> lights) => lights.Where(l => l.type == LightType.Directional).OrderByDescending(l => l.intensity * l.color.grayscale).FirstOrDefault();
+
+        /// <summary>The camera's sky (RenderSettings.skybox lit by its main light), null when there is none MiniUnity can draw.</summary>
+        internal static Sky SkyFor(Camera cam) => Sky.For(RenderSettings.skybox, MainLight(Lights(cam)));
 
         static List<Draw> Collect(Camera cam, UIRenderer.View view)
         {
@@ -131,6 +140,9 @@ namespace MiniUnity
         static Draw MakeDraw(Mesh mesh, int s, Material m, MaterialPropertyBlock block, int instance, Matrix4x4 M, float dist, bool receive)
         {
             string sname = UIRenderer.ShaderName(m.shader);
+            // world-space TextMeshPro (TextMeshPro component on a MeshRenderer): the SDF text shader, alpha blended, no depth write
+            if (UIRenderer.IsTmpSdf(sname))
+                return new Draw { mesh = mesh, mat = m, sub = s, M = M, transparent = true, text = true, dist = dist, block = block, cast = ShadowCastingMode.Off };
             Shaders.TryGetValue(sname, out var shader);
             // Standard with a texture, Cutout mode or a normal map goes through the C# Standard (same lighting); plain Standard keeps
             // the visibility-buffer path
@@ -190,12 +202,23 @@ namespace MiniUnity
                 }
                 sky = RenderSettings.ambientSkyColor.linear; equator = RenderSettings.ambientEquatorColor.linear; ground = RenderSettings.ambientGroundColor.linear;
                 ambI = 1;
+                skybox = Sky.For(RenderSettings.skybox, sun);
+                reflI = RenderSettings.reflectionIntensity;
                 if (RenderSettings.ambientMode == AmbientMode.Flat) equator = ground = sky;
+                else if (RenderSettings.ambientMode == AmbientMode.Skybox)
+                {
+                    // the ambient probe is projected from the skybox (× intensity); without a skybox material Unity uses the flat
+                    // "Ambient Color"
+                    if (skybox != null) { skyAmbient = true; ambI = RenderSettings.ambientIntensity; }
+                    else equator = ground = sky;
+                }
                 fog = RenderSettings.fog; fogMode = RenderSettings.fogMode; fogCol = RenderSettings.fogColor.linear;
                 fogStart = RenderSettings.fogStartDistance; fogEnd = RenderSettings.fogEndDistance; fogDensity = RenderSettings.fogDensity;
             }
-            /// <summary>Radiance of the Trilight gradient in direction d (sky above, equator at the horizon, ground below).</summary>
-            Color Radiance(Vector3 d) => d.y >= 0 ? Color.Lerp(equator, sky, d.y) : Color.Lerp(equator, ground, -d.y);
+            public Sky skybox; bool skyAmbient; float reflI = 1;
+            /// <summary>Radiance of the ambient source in direction d: the skybox, or the Trilight gradient (sky above, equator at the
+            /// horizon, ground below).</summary>
+            Color Radiance(Vector3 d) => skyAmbient ? skybox.Radiance(d, false) * ambI : d.y >= 0 ? Color.Lerp(equator, sky, d.y) : Color.Lerp(equator, ground, -d.y);
             Vector3[] sh;   // L2 irradiance SH (9 RGB coefficients), like the ambient probe Unity bakes from the gradient
             static void Basis(Vector3 d, Span<float> b)
             {
@@ -203,7 +226,7 @@ namespace MiniUnity
                 b[4] = 1.092548f * d.x * d.y; b[5] = 1.092548f * d.y * d.z; b[6] = 0.315392f * (3 * d.z * d.z - 1); b[7] = 1.092548f * d.x * d.z; b[8] = 0.546274f * (d.x * d.x - d.y * d.y);
             }
             /// <summary>Builds what shading reads lazily, before fragments are shaded in parallel.</summary>
-            public void Prepare() { if (sh == null) BuildSH(); }
+            public void Prepare() { if (sh == null) BuildSH(); skybox?.Specular(Vector3.up, .5f); }
             void BuildSH()
             {
                 var sh = new Vector3[9];
@@ -224,9 +247,10 @@ namespace MiniUnity
                 for (int k = 0; k < 9; k++) sh[k] *= A[k] / Mathf.PI;
                 this.sh = sh;
             }
-            /// <summary>Reflection probe: the default reflection is baked from the skybox – none here (RenderSettings.skybox = null) → black.</summary>
+            /// <summary>Default reflection: the skybox, prefiltered by roughness (× RenderSettings.reflectionIntensity); without a
+            /// skybox it is black (MINIUNITY_SPECGI=k substitutes k × the ambient).</summary>
             public static float SpecularScale = float.TryParse(Environment.GetEnvironmentVariable("MINIUNITY_SPECGI"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : 0f;
-            public Color SpecularGI(Vector3 r, float perceptualRoughness) => SpecularScale > 0 ? Ambient(r) * SpecularScale : Color.black;
+            public Color SpecularGI(Vector3 r, float perceptualRoughness) => skybox != null ? skybox.Specular(r, perceptualRoughness) * reflI : SpecularScale > 0 ? Ambient(r) * SpecularScale : Color.black;
             /// <summary>ShadeSH9: irradiance / π for normal n.</summary>
             public Color Ambient(Vector3 n)
             {
@@ -326,7 +350,9 @@ namespace MiniUnity
         static void RasterTri(Vtx A, Vtx B, Vtx C, Mat mat, UIRenderer.View view, Env env)
         {
             int W = view.W, H = view.H;
-            var color = view.target.m_SurfColor; var depth = view.target.m_SurfDepth;
+            int ns = view.target.m_MS;
+            var colors = new[] { view.target.SampleColor(0), ns > 1 ? view.target.SampleColor(1) : null };
+            var depths = new[] { view.target.SampleDepth(0), ns > 1 ? view.target.SampleDepth(1) : null };
             bool zwrite = !mat.fade;
             Span<float> sx = stackalloc float[3], sy = stackalloc float[3], sz = stackalloc float[3], iw = stackalloc float[3];
             Vtx[] v = { A, B, C };
@@ -352,10 +378,9 @@ namespace MiniUnity
                     float w0 = ((sx[2] - sx[1]) * (py - sy[1]) - (sy[2] - sy[1]) * (px - sx[1])) * ia;
                     float w1 = ((sx[0] - sx[2]) * (py - sy[2]) - (sy[0] - sy[2]) * (px - sx[2])) * ia;
                     float w2 = 1 - w0 - w1;
-                    if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-                    float z = w0 * sz[0] + w1 * sz[1] + w2 * sz[2];
                     int pi = y * W + x;
-                    if (z >= depth[pi] || z < 0) continue;
+                    int pass = SampleDepthPass(sx, sy, sz, ia, w0, w1, w2, x, y, pi, ns, depths, out float z0s, out float z1s);
+                    if (pass == 0) continue;
                     float p0 = w0 * iw[0], p1 = w1 * iw[1], p2 = w2 * iw[2], ps = 1 / (p0 + p1 + p2);
                     p0 *= ps; p1 *= ps; p2 *= ps;
                     var P = A.p * p0 + B.p * p1 + C.p * p2;
@@ -365,8 +390,7 @@ namespace MiniUnity
                     var c = Shade(mat, env, P, N, view.camPos, rimv, viewDepth);
                     // LDR camera target: the fragment output is clamped to [0, 1] before blending (matters for Fade materials)
                     c = new Color(Mathf.Clamp01(c.r), Mathf.Clamp01(c.g), Mathf.Clamp01(c.b), c.a);
-                    if (zwrite) depth[pi] = z;
-                    Blend(color, pi * 4, c, mat.fade ? mat.albedo.a : 1);
+                    WriteSamples(pass, pi, zwrite, z0s, z1s, depths, colors, c, mat.fade ? mat.albedo.a : 1);
                 }
             }
         }
@@ -438,7 +462,9 @@ namespace MiniUnity
         static void RasterCustom(CVtx A, CVtx B, CVtx C, Draw d, UIRenderer.View view, Lighting lighting)
         {
             int W = view.W, H = view.H;
-            var color = view.target.m_SurfColor; var depth = view.target.m_SurfDepth;
+            int ns = view.target.m_MS;
+            var colors = new[] { view.target.SampleColor(0), ns > 1 ? view.target.SampleColor(1) : null };
+            var depths = new[] { view.target.SampleDepth(0), ns > 1 ? view.target.SampleDepth(1) : null };
             bool blend = d.queue == WorldShader.RenderQueue.Transparent, zwrite = !blend;
             Span<float> sx = stackalloc float[3], sy = stackalloc float[3], sz = stackalloc float[3], iw = stackalloc float[3];
             for (int k = 0; k < 3; k++)
@@ -466,10 +492,9 @@ namespace MiniUnity
                     float w0 = ((sx[2] - sx[1]) * (py - sy[1]) - (sy[2] - sy[1]) * (px - sx[1])) * ia;
                     float w1 = ((sx[0] - sx[2]) * (py - sy[2]) - (sy[0] - sy[2]) * (px - sx[2])) * ia;
                     float w2 = 1 - w0 - w1;
-                    if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-                    float z = w0 * sz[0] + w1 * sz[1] + w2 * sz[2];
                     int pi = y * W + x;
-                    if (z >= depth[pi] || z < 0) continue;
+                    int pass = SampleDepthPass(sx, sy, sz, ia, w0, w1, w2, x, y, pi, ns, depths, out float z0s, out float z1s);
+                    if (pass == 0) continue;
                     float p0 = w0 * iw[0], p1 = w1 * iw[1], p2 = w2 * iw[2], ps = 1 / (p0 + p1 + p2);
                     p0 *= ps; p1 *= ps; p2 *= ps;
                     f.worldPos = A.p * p0 + B.p * p1 + C.p * p2;
@@ -483,8 +508,7 @@ namespace MiniUnity
                     f.viewDepth = 1 / (w0 * iw[0] + w1 * iw[1] + w2 * iw[2]);
                     if (!d.shader.Fragment(d.inputs, f, out var c)) continue;
                     c = new Color(Mathf.Clamp01(c.r), Mathf.Clamp01(c.g), Mathf.Clamp01(c.b), Mathf.Clamp01(c.a));
-                    if (zwrite) depth[pi] = z;
-                    Blend(color, pi * 4, c, blend ? c.a : 1);
+                    WriteSamples(pass, pi, zwrite, z0s, z1s, depths, colors, c, blend ? c.a : 1);
                 }
             }
         }
@@ -502,7 +526,7 @@ namespace MiniUnity
 
         static void BeginVisibility(UIRenderer.View view)
         {
-            int n = view.W * view.H;
+            int n = view.W * view.H * view.target.m_MS;   // one entry per sample
             if (vis.Length < n) vis = new int[n];
             Array.Fill(vis, -1, 0, n);
             triCount = 0;
@@ -512,7 +536,8 @@ namespace MiniUnity
         static void DepthTri(Vtx A, Vtx B, Vtx C, Mat mat, UIRenderer.View view)
         {
             int W = view.W, H = view.H;
-            var depth = view.target.m_SurfDepth;
+            int ns = view.target.m_MS, npx = W * H;
+            var depths = new[] { view.target.SampleDepth(0), ns > 1 ? view.target.SampleDepth(1) : null };
             Span<float> sx = stackalloc float[3], sy = stackalloc float[3], sz = stackalloc float[3], iw = stackalloc float[3];
             for (int k = 0; k < 3; k++)
             {
@@ -540,11 +565,10 @@ namespace MiniUnity
                     float w0 = ((sx[2] - sx[1]) * (py - sy[1]) - (sy[2] - sy[1]) * (px - sx[1])) * ia;
                     float w1 = ((sx[0] - sx[2]) * (py - sy[2]) - (sy[0] - sy[2]) * (px - sx[2])) * ia;
                     float w2 = 1 - w0 - w1;
-                    if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-                    float z = w0 * sz[0] + w1 * sz[1] + w2 * sz[2];
                     int pi = y * W + x;
-                    if (z >= depth[pi] || z < 0) continue;
-                    depth[pi] = z; vis[pi] = ti;
+                    int pass = SampleDepthPass(sx, sy, sz, ia, w0, w1, w2, x, y, pi, ns, depths, out float z0s, out float z1s);
+                    if ((pass & 1) != 0) { depths[0][pi] = z0s; vis[pi] = ti; }
+                    if ((pass & 2) != 0) { depths[1][pi] = z1s; vis[npx + pi] = ti; }
                 }
             }
         }
@@ -554,7 +578,8 @@ namespace MiniUnity
         {
             if (triCount == 0) return;
             int W = view.W, H = view.H;
-            var color = view.target.m_SurfColor;
+            int ns = view.target.m_MS, npx = W * H;
+            var colors = new[] { view.target.SampleColor(0), ns > 1 ? view.target.SampleColor(1) : null };
             var tris = WorldRenderer.tris; var vis = WorldRenderer.vis;
             System.Threading.Tasks.Parallel.For(0, H, y =>
             {
@@ -562,8 +587,11 @@ namespace MiniUnity
                 int row = y * W;
                 for (int x = 0; x < W; x++)
                 {
-                    int ti = vis[row + x];
-                    if (ti < 0) continue;
+                    int t0 = vis[row + x], t1 = ns > 1 ? vis[npx + row + x] : -1;
+                    if (t0 >= 0) ShadePixel(t0, (t1 == t0 ? 3 : 1));
+                    if (t1 >= 0 && t1 != t0) ShadePixel(t1, 2);
+                    void ShadePixel(int ti, int samples)
+                    {
                     ref readonly var t = ref tris[ti];
                     float px = x + .5f;
                     float w0 = ((t.sx2 - t.sx1) * (py - t.sy1) - (t.sy2 - t.sy1) * (px - t.sx1)) * t.ia;
@@ -577,9 +605,36 @@ namespace MiniUnity
                     float viewDepth = 1 / (w0 * t.iw0 + w1 * t.iw1 + w2 * t.iw2);
                     var c = Shade(t.mat, env, P, N, view.camPos, rimv, viewDepth);
                     c = new Color(Mathf.Clamp01(c.r), Mathf.Clamp01(c.g), Mathf.Clamp01(c.b), c.a);
-                    Blend(color, (row + x) * 4, c, t.mat.fade ? t.mat.albedo.a : 1);
+                    if ((samples & 1) != 0) Blend(colors[0], (row + x) * 4, c, t.mat.fade ? t.mat.albedo.a : 1);
+                    if ((samples & 2) != 0) Blend(colors[1], (row + x) * 4, c, t.mat.fade ? t.mat.albedo.a : 1);
+                    }
                 }
             });
+        }
+
+        /// <summary>Samples of pixel (x, y) covered by the triangle and passing the depth test (LESS); their depths in z0 / z1.
+        /// One sample: the pixel centre (w ≥ 0, as before MSAA); two: the MSAA sample positions.</summary>
+        static int SampleDepthPass(Span<float> sx, Span<float> sy, Span<float> sz, float ia, float w0, float w1, float w2, int x, int y, int pi, int ns, float[][] depths, out float z0, out float z1)
+        {
+            z1 = 0;
+            if (ns == 1)
+            {
+                z0 = 0;
+                if (w0 < 0 || w1 < 0 || w2 < 0) return 0;
+                z0 = w0 * sz[0] + w1 * sz[1] + w2 * sz[2];
+                return z0 >= depths[0][pi] || z0 < 0 ? 0 : 1;
+            }
+            z0 = 0;
+            int mask = Msaa.CoverageInclusive(sx[0], sy[0], sx[1], sy[1], sx[2], sy[2], ia, x, y, ns), pass = 0;
+            if ((mask & 1) != 0) { z0 = Msaa.DepthAt(sx[0], sy[0], sx[1], sy[1], sx[2], sy[2], ia, sz[0], sz[1], sz[2], x, y, 0, ns); if (z0 < depths[0][pi] && z0 >= 0) pass |= 1; }
+            if ((mask & 2) != 0) { z1 = Msaa.DepthAt(sx[0], sy[0], sx[1], sy[1], sx[2], sy[2], ia, sz[0], sz[1], sz[2], x, y, 1, ns); if (z1 < depths[1][pi] && z1 >= 0) pass |= 2; }
+            return pass;
+        }
+
+        static void WriteSamples(int pass, int pi, bool zwrite, float z0, float z1, float[][] depths, byte[][] colors, Color c, float a)
+        {
+            if ((pass & 1) != 0) { if (zwrite) depths[0][pi] = z0; Blend(colors[0], pi * 4, c, a); }
+            if ((pass & 2) != 0) { if (zwrite) depths[1][pi] = z1; Blend(colors[1], pi * 4, c, a); }
         }
 
         static void Blend(byte[] color, int o, Color c, float a)
@@ -671,10 +726,10 @@ namespace MiniUnity
         }
 
         // ------------------------------------------------------------------ shadows
-        /// <summary>Shadow settings of the active quality level (ProjectSettings/QualitySettings.asset, m_CurrentQuality).</summary>
+        /// <summary>Shadow and MSAA settings of the active quality level (ProjectSettings/QualitySettings.asset, m_CurrentQuality).</summary>
         public static class ShadowQuality
         {
-            public static float Distance = 150; public static int Cascades = 4, Resolution = 2;
+            public static float Distance = 150; public static int Cascades = 4, Resolution = 2, AntiAliasing;
             public static float Split2 = 1 / 3f; public static Vector3 Split4 = new Vector3(.0666667f, .2f, .4666667f);
             static bool loaded;
             public static void Load()
@@ -688,6 +743,9 @@ namespace MiniUnity
                     var lines = System.IO.File.ReadAllLines(file);
                     int cur = 0;
                     foreach (var l in lines) if (l.Trim().StartsWith("m_CurrentQuality:")) int.TryParse(l.Split(':')[1].Trim(), out cur);
+                    // the Editor uses the active build target's default level (m_PerPlatformDefaultQuality: Android / iPhone → 2 in
+                    // this project); MU_QUALITY_LEVEL picks a level when renders must match a capture made under another target
+                    if (int.TryParse(Environment.GetEnvironmentVariable("MU_QUALITY_LEVEL"), out int forced)) cur = forced;
                     int level = -1;
                     var inv = System.Globalization.CultureInfo.InvariantCulture;
                     float F(string v) => float.Parse(v.Trim(), inv);
@@ -697,6 +755,7 @@ namespace MiniUnity
                         if (l.StartsWith("- serializedVersion:")) { level++; continue; }
                         if (level != cur) continue;
                         if (l.StartsWith("shadowDistance:")) Distance = F(l.Substring(15));
+                        else if (l.StartsWith("antiAliasing:")) AntiAliasing = (int)F(l.Substring(13));
                         else if (l.StartsWith("shadowCascades:")) Cascades = (int)F(l.Substring(15));
                         else if (l.StartsWith("shadowResolution:")) Resolution = (int)F(l.Substring(17));
                         else if (l.StartsWith("shadowCascade2Split:")) Split2 = F(l.Substring(20));

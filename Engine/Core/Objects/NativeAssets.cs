@@ -359,6 +359,10 @@ namespace MiniUnity
             ["Unlit/Transparent"] = (10750, "0000000000000000f000000000000000"),
             ["Unlit/Transparent Cutout"] = (10751, "0000000000000000f000000000000000"),
             ["Particles/Standard Unlit"] = (211, "0000000000000000f000000000000000"),
+            ["Skybox/Cubemap"] = (103, "0000000000000000f000000000000000"),
+            ["Skybox/6 Sided"] = (104, "0000000000000000f000000000000000"),
+            ["Skybox/Procedural"] = (106, "0000000000000000f000000000000000"),
+            ["Skybox/Panoramic"] = (108, "0000000000000000f000000000000000"),
             ["Hidden/InternalErrorShader"] = (17, "0000000000000000e000000000000000"),
         };
         /// <summary>Name of a built-in shader from its file id in Unity's built-in resources (null if unknown).</summary>

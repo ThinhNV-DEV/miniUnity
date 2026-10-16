@@ -584,6 +584,20 @@ namespace UnityEngine
             var startPos = pos;
             for (int iter = 0; iter < 4 && move.sqrMagnitude > 1e-12f; iter++)
             {
+                // surfaces already within the skin: a sweep that starts touching them reports nothing, so take the motion into them
+                // out first (PhysX's controller keeps that contact offset the same way)
+                foreach (var (tn, tcol) in Touching(pos, skin))
+                {
+                    var bn = tn;
+                    if (pass == 1 && bn.y < cosSlope) { bn = new Vector3(bn.x, 0, bn.z); if (bn.sqrMagnitude < 1e-8f) continue; bn.Normalize(); }
+                    float into = Vector3.Dot(move, bn);
+                    if (into >= -1e-5f * move.magnitude) continue;
+                    if (pass == 2) { if (tn.y > 1e-3f) m_Flags |= CollisionFlags.Below; }
+                    else if (pass == 0) { if (tn.y < -0.1f) m_Flags |= CollisionFlags.Above; }
+                    else if (tn.y > 1e-3f && tn.y >= cosSlope) m_Flags |= CollisionFlags.Below; else m_Flags |= CollisionFlags.Sides;
+                    move -= bn * into;
+                }
+                if (move.sqrMagnitude <= 1e-12f) break;
                 float len = move.magnitude; var dir = move / len;
                 var q = CoreAt(pos, skin);
                 var qb = new Bounds(pos, Vector3.one * (height + 2 * (radius + skin)) * 2);
@@ -611,6 +625,26 @@ namespace UnityEngine
                 move = rest - n * Vector3.Dot(rest, n);
             }
             return Vector3.Dot(pos - startPos, origDir);
+        }
+
+        /// <summary>Normals (pointing at the controller) of the solid shapes within skin + 1 mm of its capsule.</summary>
+        List<(Vector3 n, Collider col)> Touching(Vector3 pos, float skin)
+        {
+            var res = new List<(Vector3, Collider)>();
+            var me = PhysicsWorld.ShapeOf(this);
+            var core = CoreAt(pos, 0);
+            var qb = new Bounds(pos, Vector3.one * (height + 2 * (radius + skin)) + Vector3.one * 0.01f);
+            foreach (var s in PhysicsWorld.Shapes)
+            {
+                if (s == me || s.Trigger || s.Col == this || s.Geom.Kind == GeomKind.Mesh || !s.Aabb.Intersects(qb)) continue;
+                if (s.Body.Rb != null && s.Body.Rb.m_DetectCollisions == false) continue;
+                var other = PhysicsWorld.ConvexOf(s);
+                if (!Gjk.Distance(core, other, out float d, out var pa, out var pb) || d < 1e-6f) continue;
+                float gap = d - core.Radius - other.Radius;
+                if (gap > skin + 1e-3f) continue;
+                res.Add(((pa - pb) / d, s.Col));
+            }
+            return res;
         }
 
         Vector3 Recover(Vector3 pos)

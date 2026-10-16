@@ -24,6 +24,23 @@ namespace MiniUnity
             }
         }
 
+        static Material s_DefaultSkybox;
+        /// <summary>Default-Skybox (unity_builtin_extra 10304): Skybox/Procedural with the values of Unity's asset (read from
+        /// unity_builtin_extra with `ua serialized.dump`: simple sun disk, _SunSizeConvergence left at the shader default).</summary>
+        public static Material DefaultSkybox
+        {
+            get
+            {
+                if (s_DefaultSkybox != null) return s_DefaultSkybox;
+                var m = new Material(ShaderIndex.Find("Skybox/Procedural")) { name = "Default-Skybox" };
+                m.SetFloat("_SunDisk", 1); m.SetFloat("_SunSize", 0.04f); m.SetFloat("_SunSizeConvergence", 5);
+                m.SetFloat("_AtmosphereThickness", 1); m.SetFloat("_Exposure", 1.3f);
+                m.SetColor("_SkyTint", new Color(.5f, .5f, .5f, 1)); m.SetColor("_GroundColor", new Color(.369f, .349f, .341f, 1));
+                m.m_Asset = new AssetIdentity { Guid = "0000000000000000f000000000000000", FileID = 10304, RefType = 0, Path = "Resources/unity_builtin_extra" };
+                return s_DefaultSkybox = m;
+            }
+        }
+
         public static Mesh PrimitiveMesh(PrimitiveType type, long fileId)
         {
             if (s_Prims.TryGetValue(type, out var m)) return m;

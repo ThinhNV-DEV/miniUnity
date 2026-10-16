@@ -75,6 +75,9 @@ namespace UnityEditor
         public MenuItem(string itemName) : this(itemName, false) { }
         public MenuItem(string itemName, bool isValidateFunction) : this(itemName, isValidateFunction, isValidateFunction ? -1 : 1000) { }
         public MenuItem(string itemName, bool isValidateFunction, int priority) { menuItem = itemName; validate = isValidateFunction; this.priority = priority; }
+        // internal in Unity; packages with access to the editor's internals use them
+        public MenuItem(string itemName, bool isValidateFunction, int priority, bool internalMenu) : this(itemName, isValidateFunction, priority) { }
+        public MenuItem(string itemName, bool isValidateFunction, int priority, bool internalMenu, string[] editorModes) : this(itemName, isValidateFunction, priority) { this.editorModes = editorModes; }
         internal MenuItem() { }
     }
 }

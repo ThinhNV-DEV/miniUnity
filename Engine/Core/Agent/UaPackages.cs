@@ -21,6 +21,9 @@ namespace MiniUnity.Agent
             RegisterAddressables();
             RegisterBuild();
             RegisterTestCommands();
+            RegisterApiGap();
+            RegisterSerialized();
+            RegisterEditorWindows();
         }
         static partial void RegisterBuild();
 

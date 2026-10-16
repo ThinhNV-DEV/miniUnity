@@ -13,7 +13,7 @@ using Object = UnityEngine.Object;
 
 namespace MiniUnity
 {
-    public static class Play
+    public static partial class Play
     {
         public static bool IsPlaying;
         public static double Time, UnscaledTime, FixedTime;
@@ -51,10 +51,13 @@ namespace MiniUnity
         public static void Reset()
         {
             IsPlaying = false; Time = UnscaledTime = FixedTime = 0; Frame = 0; TimeScale = 1;
+            ResetRender();
             Input.Clear(); routines.Clear(); byHandle.Clear(); invokes.Clear(); started.Clear(); Log.Clear(); Exceptions.Clear(); pendingDestroy.Clear();
             Physics3D.PhysicsWorld.Reset();
             Box2D.Physics2DWorld.Reset();
             Anim.AnimationSystem.Reset();
+            WebRequests.Reset();
+            MouseEvents.Reset();
             Audio.AudioSystem.Reset();
             LitMotion.MotionRunner.Reset();
             UnityEngine.UIElements.UIElementsRuntimeUtility.Reset(); WorldRenderer.ClearSubmitted(); QualitySettings.ResetColorSpace(); UnityEngine.Cursor.Reset();
@@ -65,7 +68,7 @@ namespace MiniUnity
         public static IEnumerable<GameObject> SceneObjects() => Hier.SceneObjects(SceneData.Active);
 
         /// <summary>Enabled behaviours on active objects, in hierarchy order (a new list: callers run user code over it).</summary>
-        static List<MonoBehaviour> Active()
+        internal static List<MonoBehaviour> Active()
         {
             var list = new List<MonoBehaviour>();
             foreach (var g in SceneObjects())
@@ -77,7 +80,7 @@ namespace MiniUnity
             return list;
         }
 
-        static MethodInfo Method(Type t, string name)
+        internal static MethodInfo Method(Type t, string name)
         {
             if (methods.TryGetValue((t, name), out var m)) return m;
             for (var c = t; c != null && c != typeof(MonoBehaviour) && c != typeof(Behaviour) && c != typeof(Object); c = c.BaseType)
@@ -172,14 +175,16 @@ namespace MiniUnity
                 Physics3D.PhysicsWorld.Interpolate(alpha);
                 Box2D.Physics2DWorld.Interpolate(alpha);
             }
+            MouseEvents.Send();   // PreUpdate.SendMouseEvents: OnMouseDown / Drag / Up / UpAsButton / Enter / Over / Exit
             UnityEngine.LowLevel.PlayerLoop.RunPhase(typeof(UnityEngine.PlayerLoop.PreUpdate));
             UnityEngine.LowLevel.PlayerLoop.RunPhase(typeof(UnityEngine.PlayerLoop.Update));
             foreach (var mb in Active()) Call(mb, "Update");
             LitMotion.MotionRunner.Tick(DeltaTime);   // LitMotion's default PlayerLoopTiming.Update
             if (UnityEngine.Physics.simulationMode == SimulationMode.Update) SimulatePhysics(DeltaTime);
             if (UnityEngine.Physics2D.simulationMode == SimulationMode2D.Update) SimulatePhysics2D(DeltaTime);
+            WebRequests.Pump();   // finished UnityWebRequests raise `completed` before coroutines resume
             ResumeRoutines(r => r.Wait == null || (r.Wait is WaitForSeconds && Time >= r.Until) || (r.Wait is CustomYieldInstruction cy && !SafeKeepWaiting(cy))
-                                || (r.Wait is Coroutine co && (!byHandle.TryGetValue(co, out var other) || other.Done)) || r.Wait is AsyncOperation);
+                                || (r.Wait is Coroutine co && (!byHandle.TryGetValue(co, out var other) || other.Done)) || (r.Wait is AsyncOperation ao && ao.isDone));
             RunInvokes();
             foreach (var d in Directors().ToList())   // Update.DirectorUpdate: playing timelines advance and evaluate
             {
@@ -191,6 +196,7 @@ namespace MiniUnity
             UnityEngine.ParticleSystem.TickAll(DeltaTime, UnscaledDeltaTime);   // PreLateUpdate.ParticleSystemBeginUpdateAll
             UnityEngine.LowLevel.PlayerLoop.RunPhase(typeof(UnityEngine.PlayerLoop.PreLateUpdate));
             foreach (var mb in Active()) Call(mb, "LateUpdate");
+            RenderPhase();   // PostLateUpdate.FinishFrameRendering: camera callbacks and visibility (no pixels)
             ResumeRoutines(r => r.Wait is WaitForEndOfFrame);
             routines.RemoveAll(r => r.Done);
             foreach (var (o, at) in pendingDestroy.Where(p => p.at <= Time + 1e-9).ToList()) { pendingDestroy.Remove((o, at)); Object.DestroyImmediate(o); }
@@ -291,10 +297,13 @@ namespace MiniUnity
 
         // ------------------------------------------------------------------ logging
         public static Application.LogCallback LogHandlers;
+        /// <summary>Keep logs outside Play mode too (editor commands: menu, window).</summary>
+        public static bool CaptureLogs;
+
         public static void OnLog(string level, string message, string stack)
         {
-            if (!IsPlaying && LogHandlers == null) return;
-            if (IsPlaying) Log.Add(new LogEntry { Type = level, Message = message, Stack = stack, Frame = Frame, Time = Time });
+            if (!IsPlaying && !CaptureLogs && LogHandlers == null) return;
+            if (IsPlaying || CaptureLogs) Log.Add(new LogEntry { Type = level, Message = message, Stack = stack, Frame = Frame, Time = Time });
             var lt = level switch { "Warning" => LogType.Warning, "Error" => LogType.Error, "Exception" => LogType.Exception, "Assert" => LogType.Assert, _ => LogType.Log };
             try { LogHandlers?.Invoke(message, stack, lt); } catch { }
         }

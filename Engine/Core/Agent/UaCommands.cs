@@ -139,6 +139,8 @@ namespace MiniUnity.Agent
             if (journaled) UaJournal.Begin(name, cmdArgs.Skip(1)); else UaJournal.Abandon();
             Serializer.Warnings.Clear();
             Serializer.Strict = a.Has("strict");
+            // UnityWebRequest from project code may reach these hosts (default: loopback only; MU_NETWORK=1 allows all)
+            if (a.O("allow-network") is string hosts) Environment.SetEnvironmentVariable("MU_ALLOW_NETWORK", hosts);
             try
             {
                 if (!All.TryGetValue(name, out var c)) throw new UaError($"unknown command '{name}' (ua help lists them)");

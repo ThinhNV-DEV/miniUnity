@@ -18,10 +18,10 @@ namespace UnityEngine
 
         protected Transform() { }
 
-        public Transform parent { get => m_Parent; set => SetParent(value, true); }
+        public Transform parent { get { ThrowIfFakeNull(); return m_Parent; } set => SetParent(value, true); }
         public Transform parentInternal { get => m_Parent; set => SetParent(value); }
-        public int childCount => m_Children.Count;
-        public Transform GetChild(int index) => m_Children[index];
+        public int childCount { get { ThrowIfFakeNull(); return m_Children.Count; } }
+        public Transform GetChild(int index) { ThrowIfFakeNull(); return m_Children[index]; }
         public Transform root { get { var t = this; while (t.m_Parent != null) t = t.m_Parent; return t; } }
         public bool hasChanged { get => m_HasChanged; set { m_HasChanged = value; if (value) s_SceneEdits++; } }
         public int hierarchyCount => 0;
@@ -29,15 +29,15 @@ namespace UnityEngine
 
         public virtual Vector3 localPosition
         {
-            get => m_LocalPositionRaw;
-            set { m_LocalPositionRaw = value; m_HasChanged = true; s_SceneEdits++; }
+            get { ThrowIfFakeNull(); return m_LocalPositionRaw; }
+            set { ThrowIfFakeNull(); m_LocalPositionRaw = value; m_HasChanged = true; s_SceneEdits++; }
         }
         public Quaternion localRotation
         {
-            get => EffRotation;
-            set { m_LocalRotation = value; m_HasChanged = true; s_SceneEdits++; } // Unity: script rotation does not touch the inspector euler hint
+            get { ThrowIfFakeNull(); return EffRotation; }
+            set { ThrowIfFakeNull(); m_LocalRotation = value; m_HasChanged = true; s_SceneEdits++; } // Unity: script rotation does not touch the inspector euler hint
         }
-        public Vector3 localScale { get => EffScale; set { m_LocalScale = value; m_HasChanged = true; s_SceneEdits++; } }
+        public Vector3 localScale { get { ThrowIfFakeNull(); return EffScale; } set { ThrowIfFakeNull(); m_LocalScale = value; m_HasChanged = true; s_SceneEdits++; } }
         public Vector3 localEulerAngles
         {
             get => m_LocalRotation.eulerAngles;
@@ -54,6 +54,7 @@ namespace UnityEngine
         {
             get
             {
+                ThrowIfFakeNull();
                 var m = Driven(out var dp, out var dr, out var ds) ? Matrix4x4.TRS(dp, dr, ds) : Matrix4x4.TRS(localPosition, m_LocalRotation, m_LocalScale);
                 return m_Parent != null ? m_Parent.localToWorldMatrix * m : m;
             }
@@ -67,7 +68,7 @@ namespace UnityEngine
         }
         public Quaternion rotation
         {
-            get => m_Parent != null ? m_Parent.rotation * EffRotation : EffRotation;
+            get { ThrowIfFakeNull(); return m_Parent != null ? m_Parent.rotation * EffRotation : EffRotation; }
             set => localRotation = m_Parent != null ? Quaternion.Inverse(m_Parent.rotation) * value : value;
         }
         public Vector3 lossyScale
@@ -98,6 +99,7 @@ namespace UnityEngine
         public void SetParent(Transform p) => SetParent(p, true);
         public void SetParent(Transform parent, bool worldPositionStays)
         {
+            ThrowIfFakeNull();
             if (parent == m_Parent) return;
             s_SceneEdits++; Hier.Version++;
             for (var c = parent; c != null; c = c.m_Parent) if (c == this) throw new InvalidOperationException("Cannot parent to own child");

@@ -45,6 +45,7 @@ namespace MiniUnity
             public int sourcePort, sourceInputPort;
             public float weight = 1;
             public bool evaluateOnSeek;
+            public object extra;   // per-type state (animation output: bound hierarchy)
             public readonly List<INotificationReceiver> receivers = new();
         }
 
@@ -227,6 +228,7 @@ namespace MiniUnity
                 Prepare(o.source, o.sourcePort, info, g.frame);
                 Process(o.source, o.sourcePort, info, o.userData, new HashSet<long>());
                 if (o.type == typeof(UnityEngine.Audio.AudioPlayableOutput)) Audio.PlayableAudio.Sync(o, oh);
+                else if (o.type == typeof(UnityEngine.Animations.AnimationPlayableOutput)) Anim.PlayableAnimation.Evaluate(o, seek);
             }
         }
 

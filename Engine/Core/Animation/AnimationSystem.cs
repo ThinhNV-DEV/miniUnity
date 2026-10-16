@@ -12,7 +12,7 @@ namespace MiniUnity.Anim
     {
         static readonly HashSet<Animator> enabledLast = new();
 
-        public static void Reset() => enabledLast.Clear();
+        public static void Reset() { enabledLast.Clear(); PlayableAnimation.Reset(); }
 
         public static PoseWriter Sampler(GameObject go, ClipData d) { var w = new PoseWriter(go.transform); w.Bind(d); return w; }
 
@@ -46,6 +46,7 @@ namespace MiniUnity.Anim
                 }
             }
             if (fixedPhase) return;
+            PlayableAnimation.FlushPending();   // AnimationPlayableOutputs layered over a running controller
             // Animators disabled since the last frame: Write Defaults on disable / reset unless keepAnimatorStateOnDisable
             foreach (var a in enabledLast.ToList())
             {

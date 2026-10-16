@@ -16,6 +16,42 @@ namespace UnityEngine
         internal int m_AA = 1, m_SS = 1;
         internal byte[] m_SurfColor, m_SurfStencil;
         internal float[] m_SurfDepth;
+        // camera MSAA (2 samples, Msaa.cs): while a camera renders through a multisampled intermediate, m_SurfColor / Stencil /
+        // Depth hold sample 0 and these sample 1; EndMultisample resolves the two into the surface
+        internal int m_MS = 1;
+        internal byte[] m_MsColor, m_MsStencil;
+        internal float[] m_MsDepth;
+        internal byte[] SampleColor(int s) => s == 0 ? m_SurfColor : m_MsColor;
+        internal byte[] SampleStencil(int s) => s == 0 ? m_SurfStencil : m_MsStencil;
+        internal float[] SampleDepth(int s) => s == 0 ? m_SurfDepth : m_MsDepth;
+        internal void BeginMultisample()
+        {
+            int n = SurfW * SurfH;
+            if (m_MsColor == null || m_MsColor.Length != n * 4) { m_MsColor = new byte[n * 4]; m_MsStencil = new byte[n]; m_MsDepth = new float[n]; }
+            Buffer.BlockCopy(m_SurfColor, 0, m_MsColor, 0, n * 4);
+            Buffer.BlockCopy(m_SurfStencil, 0, m_MsStencil, 0, n);
+            Buffer.BlockCopy(m_SurfDepth, 0, m_MsDepth, 0, n * 4);
+            m_MS = 2;
+        }
+        /// <summary>Box resolve of the two samples in linear space (an sRGB / HDR intermediate resolves linear values).</summary>
+        internal void EndMultisample()
+        {
+            if (m_MS == 1) return;
+            m_MS = 1;
+            var a = m_SurfColor; var b = m_MsColor; bool srgb = m_SRGB;
+            System.Threading.Tasks.Parallel.For(0, SurfH, y =>
+            {
+                int o0 = y * SurfW * 4, o1 = o0 + SurfW * 4;
+                for (int o = o0; o < o1; o += 4)
+                {
+                    if (a[o] == b[o] && a[o + 1] == b[o + 1] && a[o + 2] == b[o + 2] && a[o + 3] == b[o + 3]) continue;
+                    for (int k = 0; k < 3; k++)
+                        a[o + k] = srgb ? TextureData.LinearToSrgbByte((TextureData.SrgbToLinear[a[o + k]] + TextureData.SrgbToLinear[b[o + k]]) * .5f)
+                                        : (byte)((a[o + k] + b[o + k] + 1) >> 1);
+                    a[o + 3] = (byte)((a[o + 3] + b[o + 3] + 1) >> 1);
+                }
+            });
+        }
         internal int SurfW => m_RW * m_SS;
         internal int SurfH => m_RH * m_SS;
         internal int m_RVersion;

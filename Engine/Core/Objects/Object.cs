@@ -65,8 +65,15 @@ namespace UnityEngine
 
         internal void ThrowIfDestroyed()
         {
-            if (m_Destroyed) throw new MissingReferenceException($"The object of type '{GetType().Name}' has been destroyed but you are still trying to access it.");
+            if (!m_Destroyed) return;
+            if (m_FakeNull != null) throw m_FakeNullMissing ? new MissingReferenceException(m_FakeNull) : new UnassignedReferenceException(m_FakeNull);
+            throw new MissingReferenceException($"The object of type '{GetType().Name}' has been destroyed but you are still trying to access it.\nYour script should either check if it is null or you should not destroy the object.");
         }
+
+        /// <summary>Unity Editor's "fake null": an unassigned (or dangling) serialized Object field holds a placeholder that compares
+        /// equal to null but throws UnassignedReferenceException / MissingReferenceException when used (Serializer.FakeNull).</summary>
+        internal string m_FakeNull; internal bool m_FakeNullMissing;
+        internal void ThrowIfFakeNull() { if (m_FakeNull != null) ThrowIfDestroyed(); }
 
         public override string ToString() => IsAlive(this) ? $"{m_Name} ({GetType().FullName})" : "null";
 
@@ -238,5 +245,29 @@ namespace MiniUnity
             parts.Reverse();
             return string.Join("/", parts);
         }
+    }
+}
+
+namespace UnityEngine
+{
+    // the generated stubs drop the message; these keep it like Unity's
+    public partial class UnassignedReferenceException
+    {
+        public UnassignedReferenceException() : base("A variable has not been assigned.") { }
+        public UnassignedReferenceException(string message) : base(message) { }
+        public UnassignedReferenceException(string message, System.Exception innerException) : base(message, innerException) { }
+#pragma warning disable SYSLIB0051
+        protected UnassignedReferenceException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+#pragma warning restore SYSLIB0051
+    }
+
+    public partial class MissingReferenceException
+    {
+        public MissingReferenceException() : base("The object has been destroyed but you are still trying to access it.") { }
+        public MissingReferenceException(string message) : base(message) { }
+        public MissingReferenceException(string message, System.Exception innerException) : base(message, innerException) { }
+#pragma warning disable SYSLIB0051
+        protected MissingReferenceException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) : base(info, context) { }
+#pragma warning restore SYSLIB0051
     }
 }

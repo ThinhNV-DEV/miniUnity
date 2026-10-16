@@ -3,11 +3,11 @@
 //   Simulate / IsAlive, isPlaying / isEmitting / isStopped / isPaused, particleCount, time.
 // - In Play mode each system is simulated once per frame before LateUpdate (Unity: PreLateUpdate.ParticleSystemBeginUpdateAll):
 //   lifetime, velocity, gravity modifier, angular velocity, emission rate over time, bursts, duration / looping, stop action,
-//   play on awake. Particles start at the emitter and move along its forward axis (the shape module is not modelled).
+//   play on awake.
 // - Initial settings of a system loaded from a scene / prefab come from its serialized modules (constant values; a curve is
 //   read as its scalar). Values set from script live in memory and are not written back to the asset.
-// Not simulated: shape, velocity / size / color / rotation over lifetime, noise, collision, trigger, sub emitters, trails,
-// lights, texture sheet animation; the software renderer does not draw particles.
+// Shape, Color / Size / Rotation / Velocity over lifetime: ParticleModules.cs; drawn by UIRenderer.DrawParticles (billboards).
+// Not simulated: noise, collision, trigger, sub emitters, trails, lights, texture sheet animation, limit velocity, force.
 using System;
 using System.Collections.Generic;
 using MiniUnity.Yaml;
@@ -80,8 +80,18 @@ namespace UnityEngine
                         if (b is YMap bm)
                             s.bursts.Add(new Burst(F(bm["time"]), CurveOf(bm["countCurve"], 30), (int)F(bm["cycleCount"], 1), F(bm["repeatInterval"], 0.01f)) { probability = F(bm["probability"], 1) });
             }
-            s.random = new System.Random(s.autoRandomSeed ? Environment.TickCount : (int)s.randomSeed);
+            // Unity picks a new seed every play for auto-seeded systems; MiniUnity derives it from MU_RANDOM_SEED and the object's name
+            // so a run can be repeated exactly
+            s.random = new System.Random(s.autoRandomSeed ? AutoSeed() : (int)s.randomSeed);
             return s;
+        }
+
+        int AutoSeed()
+        {
+            int.TryParse(Environment.GetEnvironmentVariable("MU_RANDOM_SEED"), out int baseSeed);
+            uint h = 2166136261u;
+            foreach (char ch in m_GameObject != null ? m_GameObject.m_Name : "") h = (h ^ ch) * 16777619u;
+            return baseSeed ^ (int)h;
         }
 
         static float F(YNode n, float def = 0) => n is YScalar v && v.Value.Length > 0 ? v.F : def;
@@ -90,7 +100,13 @@ namespace UnityEngine
         {
             if (n is not YMap m) return def;
             float max = F(m["scalar"], def), min = F(m["minScalar"], max);
-            return (int)F(m["minMaxState"]) == 3 ? new MinMaxCurve(min, max) : new MinMaxCurve(max);
+            return (int)F(m["minMaxState"]) switch
+            {
+                3 => new MinMaxCurve(min, max),
+                1 => new MinMaxCurve(max, MiniUnity.Serializer.ReadCurve(m["maxCurve"])),
+                2 => new MinMaxCurve(max, MiniUnity.Serializer.ReadCurve(m["minCurve"]), MiniUnity.Serializer.ReadCurve(m["maxCurve"])),
+                _ => new MinMaxCurve(max),
+            };
         }
         static Color ColorOf(YNode n, Color def) => n is YMap m ? new Color(F(m["r"], 1), F(m["g"], 1), F(m["b"], 1), F(m["a"], 1)) : def;
         /// <summary>Serialized MinMaxGradient (minMaxState 0 color, 2 two colors, gradients read as their max color).</summary>
@@ -98,7 +114,14 @@ namespace UnityEngine
         {
             if (n is not YMap m) return Color.white;
             var max = ColorOf(m["maxColor"], Color.white);
-            return (int)F(m["minMaxState"]) == 2 ? new MinMaxGradient(ColorOf(m["minColor"], Color.white), max) : new MinMaxGradient(max);
+            switch ((int)F(m["minMaxState"]))
+            {
+                case 1: return new MinMaxGradient(Gradient.FromYaml(m["maxGradient"]));
+                case 2: return new MinMaxGradient(ColorOf(m["minColor"], Color.white), max);
+                case 3: return new MinMaxGradient(Gradient.FromYaml(m["minGradient"]), Gradient.FromYaml(m["maxGradient"]));
+                case 4: { var g = new MinMaxGradient(Gradient.FromYaml(m["maxGradient"])); g.mode = ParticleSystemGradientMode.RandomColor; return g; }
+                default: return new MinMaxGradient(max);
+            }
         }
 
         // ------------------------------------------------------------------ modules
@@ -209,9 +232,12 @@ namespace UnityEngine
             var p = new Particle();
             float life = s.startLifetime.Evaluate(u, s.Random01());
             p.startLifetime = life; p.remainingLifetime = life;
-            var dir = s.simulationSpace == ParticleSystemSimulationSpace.Local ? Vector3.forward : transform.rotation * Vector3.forward;
+            // the shape module gives the start offset and direction (emitter space)
+            ShapeSample(out var lp, out var ldir);
+            bool local = s.simulationSpace == ParticleSystemSimulationSpace.Local;
+            var dir = local ? ldir : transform.rotation * ldir;
             p.velocity = dir * s.startSpeed.Evaluate(u, s.Random01());
-            p.position = EmitterPosition();
+            p.position = local ? lp : transform.position + transform.rotation * lp;
             float size = s.startSize.Evaluate(u, s.Random01());
             p.startSize3D = s.startSize3D ? new Vector3(size, s.startSizeY.Evaluate(u, s.Random01()), s.startSizeZ.Evaluate(u, s.Random01())) : new Vector3(size, size, size);
             p.rotation = s.startRotation.Evaluate(u, s.Random01()) * Mathf.Rad2Deg;
@@ -292,14 +318,28 @@ namespace UnityEngine
             if (dt <= 0) return;
             float u = s.duration > 0 ? Mathf.Clamp01(s.time / s.duration) : 0;
             var gravity = Physics.gravity * s.gravityModifier.Evaluate(u, 0.5f);
+            var m = M;
+            bool local = s.simulationSpace == ParticleSystemSimulationSpace.Local;
+            var toSim = local ? Quaternion.Inverse(transform.rotation) : transform.rotation;
             for (int i = s.particles.Count - 1; i >= 0; i--)
             {
                 var p = s.particles[i];
                 p.remainingLifetime -= dt;
                 if (p.remainingLifetime <= 0) { s.particles.RemoveAt(i); continue; }
-                p.velocity += gravity * dt;
-                p.position += p.velocity * dt;
+                p.velocity += (local ? Quaternion.Inverse(transform.rotation) * gravity : gravity) * dt;
+                float t = Age(p);
+                var animated = Vector3.zero; float speedMul = 1;
+                if (m.velocityEnabled)
+                {
+                    float r = Lerp01(p, 0xA11u);
+                    animated = new Vector3(m.velX.Evaluate(t, r), m.velY.Evaluate(t, r), m.velZ.Evaluate(t, r));
+                    if (m.velSpace != s.simulationSpace) animated = toSim * animated;
+                    speedMul = m.speedModifier.Evaluate(t, r);
+                }
+                p.SetAnimatedVelocity(animated);
+                p.position += (p.velocity * speedMul + animated) * dt;
                 p.rotation += p.angularVelocity * dt;
+                if (m.rotationEnabled) p.rotation += m.rotZ.Evaluate(t, Lerp01(p, 0x707u)) * Mathf.Rad2Deg * dt;
                 s.particles[i] = p;
             }
             float prev = s.time;
@@ -485,9 +525,10 @@ namespace UnityEngine
             public float angularVelocity { get => m_AngularVelocity.z; set => m_AngularVelocity = new Vector3(0, 0, value); }
             public Vector3 angularVelocity3D { get => m_AngularVelocity; set => m_AngularVelocity = value; }
 
-            public float GetCurrentSize(ParticleSystem system) => m_StartSize.x;
-            public Vector3 GetCurrentSize3D(ParticleSystem system) => m_StartSize;
-            public Color32 GetCurrentColor(ParticleSystem system) => m_StartColor;
+            public float GetCurrentSize(ParticleSystem system) => system != null ? system.CurrentSize3D(this).x : m_StartSize.x;
+            public Vector3 GetCurrentSize3D(ParticleSystem system) => system != null ? system.CurrentSize3D(this) : m_StartSize;
+            public Color32 GetCurrentColor(ParticleSystem system) => system != null ? system.CurrentColor(this) : m_StartColor;
+            internal void SetAnimatedVelocity(Vector3 v) => m_AnimatedVelocity = v;
             public void SetMeshIndex(int index) => m_MeshIndex = index;
             public int GetMeshIndex(ParticleSystem system) => m_MeshIndex;
         }
@@ -537,7 +578,8 @@ namespace UnityEngine
             /// applyShapeToPosition: the emitter's position (the shape module is not modelled) is added to the given position.</summary>
             internal void ApplyTo(ref Particle p, Vector3 emitterPosition)
             {
-                if (m_PositionSet) p.position = m_ApplyShapeToPosition ? emitterPosition + m_Particle.position : m_Particle.position;
+                // applyShapeToPosition keeps the shape module's offset around the given position
+                if (m_PositionSet) p.position = m_ApplyShapeToPosition ? m_Particle.position + (p.position - emitterPosition) : m_Particle.position;
                 if (m_VelocitySet) p.velocity = m_Particle.velocity;
                 if (m_AxisOfRotationSet) p.axisOfRotation = m_Particle.axisOfRotation;
                 if (m_RotationSet) p.rotation3D = m_Particle.rotation3D;

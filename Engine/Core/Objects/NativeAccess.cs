@@ -15,7 +15,7 @@ namespace UnityEngine
 
         internal YNode NGet(string path)
         {
-            if (m_Native == null) return null;
+            if (m_Native == null) { ThrowIfFakeNull(); return null; }
             if (path.IndexOf('.') < 0) return m_Native[path];
             YNode cur = m_Native;
             foreach (var part in path.Split('.'))
@@ -28,6 +28,7 @@ namespace UnityEngine
         }
         internal void NSet(string path, YNode v)
         {
+            ThrowIfFakeNull();
             s_SceneEdits++; m_NVersion++;
             m_Native ??= new YMap();
             var parts = path.Split('.');

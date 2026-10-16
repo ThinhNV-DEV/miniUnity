@@ -146,8 +146,14 @@ namespace UnityEngine
         public int pixelWidth => targetTexture != null ? targetTexture.width : (int)MiniUnity.Screen.Width;
         public int pixelHeight => targetTexture != null ? targetTexture.height : (int)MiniUnity.Screen.Height;
         public float aspect { get => pixelWidth / (float)pixelHeight; set { } }
+        /// <summary>The viewport rect in pixels of the target (a camera without a stored rect covers the whole target).</summary>
+        public Rect pixelRect
+        {
+            get { var r = rect; if (r.width <= 0 || r.height <= 0) r = new Rect(0, 0, 1, 1); return new Rect(r.x * pixelWidth, r.y * pixelHeight, r.width * pixelWidth, r.height * pixelHeight); }
+            set { }
+        }
         public static Camera main => ObjectRegistry.SceneObjects(typeof(Camera), false).Cast<Camera>().FirstOrDefault(c => c.gameObject.CompareTag("MainCamera"));
-        public static Camera current => null;
+        public static Camera current => MiniUnity.Play.s_CurrentCamera;
         public static int allCamerasCount => ObjectRegistry.SceneObjects(typeof(Camera), false).Count();
         public static Camera[] allCameras => ObjectRegistry.SceneObjects(typeof(Camera), false).Cast<Camera>().ToArray();
         /// <summary>View matrix like Unity's: camera space looks down −Z (OpenGL convention).</summary>

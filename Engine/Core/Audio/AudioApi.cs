@@ -285,8 +285,8 @@ namespace UnityEngine.Audio
     /// AudioMixer asset (.mixer): groups with their volume / mute / solo, snapshots holding parameter values keyed by
     /// parameter GUID, exposed parameters (SetFloat overrides the snapshot until ClearFloat), timed snapshot transitions
     /// on the DSP clock, and the group gain an AudioSource's output goes through (product of the group chain, dB → linear).
-    /// Solo silences the groups outside the soloed ones' paths. Mixer effects other than the group attenuation are not simulated
-    /// (filter components on GameObjects are: Audio/AudioFilters.cs).
+    /// Solo silences the groups outside the soloed ones' paths. Effects inside the mixer (Lowpass / Highpass, Echo, SFX Reverb,
+    /// Compressor, Duck Volume, Send / Receive) are mixed per group by Audio/MixerBus.cs.
     /// </summary>
     public partial class AudioMixer
     {

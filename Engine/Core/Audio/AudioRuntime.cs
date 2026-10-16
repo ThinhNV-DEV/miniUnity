@@ -27,6 +27,7 @@ namespace MiniUnity.Audio
         public FilterChain Chain; public List<float> Rendered; public long RenderStart, RenderNext; public float LastGainL = -1, LastGainR;
         public double TailUntil;
         public bool FromPlayable; public float Pan;   // driven by an AudioClipPlayable (PlayableAudio.cs)
+        public MixerBus Bus; public UnityEngine.Audio.AudioMixerGroup BusGroup;   // routed to a mixer with effects (MixerBus.cs)
     }
 
     public sealed class AudioEvent
@@ -53,6 +54,7 @@ namespace MiniUnity.Audio
             DspTime = 0; ListenerVolume = 1; ListenerPause = false;
             PlayableAudio.Reset();
             Voices.Clear(); Finished.Clear(); Tails.Clear(); Log.Clear(); enabledSources.Clear(); settingsLoaded = false;
+            MixerBus.Reset();
         }
 
         public static void EnsureSettings()
@@ -104,7 +106,7 @@ namespace MiniUnity.Audio
         static void Finish(Voice v)
         {
             v.Finished = true; Voices.Remove(v); Finished.Add(v);
-            if (v.Rendered != null && v.Chain != null) { double tail = v.Chain.Tail; if (tail > 0) { v.TailUntil = DspTime + tail; Tails.Add(v); } }
+            if ((v.Rendered != null || v.Bus != null) && v.Chain != null) { double tail = v.Chain.Tail; if (tail > 0) { v.TailUntil = DspTime + tail; Tails.Add(v); } }
         }
 
         /// <summary>AudioSources that became enabled since the last frame: playOnAwake starts them (Unity does this on enable).</summary>
@@ -136,13 +138,13 @@ namespace MiniUnity.Audio
         }
 
         /// <summary>Gains at the listener: volume · distance rolloff (blended by spatialBlend) and stereo pan.</summary>
-        public static (float l, float r) Gains(Voice v, AudioListener listener)
+        public static (float l, float r) Gains(Voice v, AudioListener listener, bool includeGroup = true)
         {
             var s = v.Source;
             if (s == null || s.m_Destroyed) return (v.VolumeScale, v.VolumeScale);
             float vol = s.mute ? 0 : s.volume * v.VolumeScale * (s.ignoreListenerVolume ? 1 : ListenerVolume);
             var group = s.outputAudioMixerGroup;
-            if (group != null) vol *= group.Gain();
+            if (group != null && includeGroup) vol *= group.Gain();
             float blend = Mathf.Clamp01(s.spatialBlend);
             float pan = Mathf.Clamp(s.panStereo + v.Pan, -1, 1) * (1 - blend);
             if (blend > 0 && listener != null)
@@ -164,6 +166,7 @@ namespace MiniUnity.Audio
             EnsureSettings();
             double prev = DspTime;
             DspTime += unscaledDt;
+            MixerBus.BeginFrame(prev, DspTime, OutputSampleRate);
             var listener = Listener();
             foreach (var v in Voices.ToList())
             {
@@ -177,15 +180,16 @@ namespace MiniUnity.Audio
                     v.Started = true;
                     Record(v.FromPlayable ? "playable" : v.OneShot ? "oneshot" : "start", s, v.Clip, (float)v.ClipPos, s != null ? s.volume * v.VolumeScale : v.VolumeScale, Math.Max(v.StartDsp, prev));
                 }
-                var (gl, gr) = Gains(v, listener);
+                // a voice routed to a mixer with effects is mixed live into that mixer's group bus (gains without the group volumes)
+                var group = s != null && !s.m_Destroyed ? s.outputAudioMixerGroup : null;
+                var bus = group != null ? MixerBus.For(group) : null;
+                if (bus != null) { v.Bus = bus; v.BusGroup = group; }
+                var (gl, gr) = Gains(v, listener, includeGroup: bus == null);
                 if (v.Started && !paused && to > from)
                 {
-                    v.Snaps.Add(new Voice.Snap { Dsp = from, ClipPos = v.ClipPos, Pitch = pitch, GainL = gl, GainR = gr, Audible = true });
-                    if (s != null && (v.Chain != null || FilterChain.HasFilters(s.gameObject)))
-                    {
-                        v.Chain ??= new FilterChain();
-                        RenderLive(v, from, to, pitch, gl, gr);
-                    }
+                    if (bus == null) v.Snaps.Add(new Voice.Snap { Dsp = from, ClipPos = v.ClipPos, Pitch = pitch, GainL = gl, GainR = gr, Audible = true });
+                    if (s != null && (v.Chain != null || FilterChain.HasFilters(s.gameObject))) v.Chain ??= new FilterChain();
+                    if (v.Chain != null || bus != null) RenderLive(v, from, to, pitch, gl, gr);
                     double len = v.Clip != null ? v.Clip.length : 0;
                     if (v.Clip == null && v.Chain != null && v.Chain.HasScript) { v.LastDsp = DspTime; continue; }   // procedural: the script makes the sound
                     v.ClipPos += (to - from) * pitch;
@@ -216,6 +220,7 @@ namespace MiniUnity.Audio
                 if (to > prev) RenderLive(v, prev, to, 0, v.LastGainL, v.LastGainR, silent: true);
                 if (DspTime >= v.TailUntil) Tails.Remove(v);
             }
+            MixerBus.EndFrame();
         }
 
         /// <summary>Render [from, to) of a voice through its source's filter chain (input before gains, gains ramped from the last
@@ -223,7 +228,8 @@ namespace MiniUnity.Audio
         static void RenderLive(Voice v, double from, double to, float pitch, float gl, float gr, bool silent = false)
         {
             int rate = OutputSampleRate;
-            if (v.Rendered == null) { v.Rendered = new List<float>(); v.RenderStart = v.RenderNext = (long)(from * rate); }
+            if (v.Bus != null) { if (v.RenderNext == 0 && v.RenderStart == 0) v.RenderStart = v.RenderNext = (long)(from * rate); }
+            else if (v.Rendered == null) { v.Rendered = new List<float>(); v.RenderStart = v.RenderNext = (long)(from * rate); }
             long a = v.RenderNext, b = (long)(to * rate);
             if (b <= a) return;
             int n = (int)(b - a);
@@ -240,14 +246,24 @@ namespace MiniUnity.Audio
                     buf[i * 2] = sl; buf[i * 2 + 1] = clip.m_Channels > 1 ? Sample(clip, cp, 1) : sl;
                 }
             var go = v.Source != null && !v.Source.m_Destroyed ? v.Source.gameObject : null;
-            if (v.Chain.Update(go)) v.Chain.Process(buf, 2, rate);
+            if (v.Chain != null && v.Chain.Update(go)) v.Chain.Process(buf, 2, rate);
             float l0 = v.LastGainL < 0 ? gl : v.LastGainL, r0 = v.LastGainL < 0 ? gr : v.LastGainR;
-            for (int i = 0; i < n; i++)
+            if (v.Bus != null)
             {
-                float f = (i + 1) / (float)n;
-                v.Rendered.Add(buf[i * 2] * (l0 + (gl - l0) * f));
-                v.Rendered.Add(buf[i * 2 + 1] * (r0 + (gr - r0) * f));
+                for (int i = 0; i < n; i++)
+                {
+                    float f = (i + 1) / (float)n;
+                    buf[i * 2] *= l0 + (gl - l0) * f; buf[i * 2 + 1] *= r0 + (gr - r0) * f;
+                }
+                v.Bus.Add(v.BusGroup, a, buf, n);
             }
+            else
+                for (int i = 0; i < n; i++)
+                {
+                    float f = (i + 1) / (float)n;
+                    v.Rendered.Add(buf[i * 2] * (l0 + (gl - l0) * f));
+                    v.Rendered.Add(buf[i * 2 + 1] * (r0 + (gr - r0) * f));
+                }
             v.LastGainL = gl; v.LastGainR = gr;
             v.RenderNext = b;
         }
@@ -271,9 +287,16 @@ namespace MiniUnity.Audio
         {
             var res = new float[n];
             var listener = Listener();
+            if (only == null && MixerBus.LiveL.Count > 0)
+            {
+                // the mixers with effects: the last n samples of their live mix
+                var live = channel == 0 ? MixerBus.LiveL : MixerBus.LiveR; int end = live.Count;
+                for (int k = 0; k < n; k++) { int i = end - n + k; if (i >= 0) res[k] += live[i]; }
+            }
             foreach (var v in Voices.Concat(Tails))
             {
                 if (!v.Started || v.Paused || only != null && v.Source != only) continue;
+                if (only == null && v.Bus != null) continue;
                 if (v.Rendered != null)
                 {
                     int have = v.Rendered.Count / 2;
@@ -373,6 +396,7 @@ namespace MiniUnity.Audio
             int used = 0;
             foreach (var v in Finished.Concat(Voices))
             {
+                if (v.Bus != null) { used++; continue; }   // mixed live through its mixer's effects (MixerBus.LiveL / LiveR below)
                 if (v.Rendered != null)
                 {
                     // rendered live through the source's filter chain (at the output rate; resampled linearly for another rate)
@@ -408,6 +432,17 @@ namespace MiniUnity.Audio
                         float sl = Sample(v.Clip, cp, 0), sr = v.Clip.m_Channels > 1 ? Sample(v.Clip, cp, 1) : sl;
                         L[k] += sl * gl; R[k] += sr * gr;
                     }
+                }
+            }
+            if (MixerBus.LiveL.Count > 0)
+            {
+                double scale = OutputSampleRate / (double)rate; int have = MixerBus.LiveL.Count;
+                for (int k = 0; k < total; k++)
+                {
+                    double p = k * scale; int i = (int)p; float f = (float)(p - i);
+                    float S(List<float> x, int j) => j < 0 || j >= have ? 0 : x[j];
+                    L[k] += S(MixerBus.LiveL, i) + (S(MixerBus.LiveL, i + 1) - S(MixerBus.LiveL, i)) * f;
+                    R[k] += S(MixerBus.LiveR, i) + (S(MixerBus.LiveR, i + 1) - S(MixerBus.LiveR, i)) * f;
                 }
             }
             ListenerChain(L, R, rate);

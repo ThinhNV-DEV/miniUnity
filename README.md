@@ -21,7 +21,7 @@ Dùng qua:
 |---|---|
 | Đọc / sửa / tạo / xoá scene, Hierarchy, GameObject, Transform; thêm / xoá component, đọc / sửa serialized field | Retarget clip humanoid (muscle), Avatar từ FBX; jacobian / inverse dynamics của ArticulationBody |
 | Prefab, prefab instance (override như Unity: modifications, added / removed component và GameObject), ScriptableObject | Input thiết bị thật (chỉ có input kịch bản `--input`); gamepad trong package Input System |
-| Asset: tìm kiếm, import (`.meta`), move / copy / delete giữ tham chiếu, GUID, importer settings, ProjectSettings, tags / layers, Build Settings | Render trong player loop; post-processing, reflection probe, skybox, lightmap |
+| Asset: tìm kiếm, import (`.meta`), move / copy / delete giữ tham chiếu, GUID, importer settings, ProjectSettings, tags / layers, Build Settings | Pixel trong player loop (callback render có, rasterize theo yêu cầu: screenshot / record); post-processing stack, reflection probe, skybox, lightmap |
 | Package Manager: resolve, thêm / xoá, tải source; Addressables: group, entry, label, schema, phân tích dependency | Build player (APK / IPA / exe) |
 | Compile C# theo luật của Unity (asmdef, define, platform), lỗi kèm `file:line`, compile tăng dần | API Unity chưa có cài đặt: ném `NotImplementedException("Type.Member")` (xem §Thêm API còn thiếu) |
 | Chạy EditMode / PlayMode test (NUnit + Unity Test Framework), Play scene (player loop, coroutine, job system, NativeArray), thu exception | Effect trong AudioMixer (group chỉ có volume, mute, solo, snapshot, exposed parameter; filter component trên GameObject thì có) |
@@ -161,7 +161,7 @@ Tốc độ ~1.5 fps / job ở 1080p.
 ## Thêm API còn thiếu
 
 `NotImplementedException("Type.Member")` (trong `ua play` / `ua test` được đánh dấu `"miniunity"`) nghĩa là code vừa gọi một API Unity
-chưa có cài đặt. Cách thêm:
+chưa có cài đặt. `./ua.sh apigap` liệt kê trước mọi API như vậy mà project gọi (xếp theo số chỗ gọi, kèm `file:line`). Cách thêm:
 
 1. Viết `partial` của kiểu đó trong `Engine/Core/` (vd. `Objects/Patches.cs`):
    ```csharp

@@ -48,7 +48,34 @@ namespace MiniUnity
         static float F(string s) => float.Parse(s.Trim(), CultureInfo.InvariantCulture);
         static Vector2 P(string s) { var t = s.Trim().TrimStart('(').TrimEnd(')').Split(',', ' ', '|').Where(x => x.Length > 0).ToArray(); return new Vector2(F(t[0]), F(t[1])); }
 
-        public void Parse(string spec)
+        public void Parse(string spec) => Parse(spec, 0, false);
+
+        /// <summary>Script items whose frames count from <paramref name="offset"/> (interactive play: offset = the current frame, so
+        /// "@1" is the next frame); with <paramref name="tap"/> an item without frames lasts one frame instead of the whole run.</summary>
+        public void Parse(string spec, int offset, bool tap)
+        {
+            int before = spans.Count;
+            ParseItems(spec);
+            for (int i = before; i < spans.Count; i++)
+            {
+                var s = spans[i];
+                if (tap && s.To == int.MaxValue && s.Kind != "mouse") s.To = s.From;
+                s.From += offset; if (s.To != int.MaxValue) s.To += offset;
+            }
+        }
+
+        /// <summary>A key / button held from <paramref name="frame"/> until <see cref="Release"/> (live viewer).</summary>
+        public void Hold(string name, int frame)
+        {
+            if (spans.Any(s => s.Kind == "key" && s.Name == name && s.To == int.MaxValue)) return;
+            spans.Add(new Span { Kind = "key", Name = name, From = frame, To = int.MaxValue });
+        }
+        public void Release(string name, int frame)
+        {
+            foreach (var s in spans) if (s.Kind == "key" && s.Name == name && s.To == int.MaxValue) s.To = Math.Max(s.From, frame - 1);
+        }
+
+        void ParseItems(string spec)
         {
             foreach (var p in Items(spec))
             {

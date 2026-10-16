@@ -13,3 +13,4 @@ out/
 # the root .gitignore drops *.csproj (Unity-generated); these are hand-written
 !Engine/MiniUnity.csproj
 !tools/**/*.csproj
+tests/__pycache__/

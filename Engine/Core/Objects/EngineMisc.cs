@@ -322,7 +322,13 @@ namespace UnityEngine
             return ColorSpace.Gamma;
         }
         public static int vSyncCount { get => 0; set { } }
-        public static int antiAliasing { get => 0; set { } }
+        /// <summary>MSAA sample count of the active quality level (0 = off); a camera rendering through an MSAA intermediate uses it.</summary>
+        public static int antiAliasing
+        {
+            get { if (s_AA is int v) return v; MiniUnity.WorldRenderer.ShadowQuality.Load(); return MiniUnity.WorldRenderer.ShadowQuality.AntiAliasing; }
+            set => s_AA = value <= 1 ? 0 : value >= 8 ? 8 : value >= 4 ? 4 : 2;
+        }
+        static int? s_AA;
     }
 
     public sealed partial class Screen

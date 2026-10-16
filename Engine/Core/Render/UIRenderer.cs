@@ -67,9 +67,16 @@ namespace MiniUnity
             var target = cam.targetTexture ?? ScreenBuffer;
             target.EnsureBuffers();
             int W = target.SurfW, H = target.SurfH;
-            switch (cam.clearFlags)
+            var clear = cam.clearFlags;
+            if (clear == CameraClearFlags.Skybox && WorldRenderer.SkyFor(cam) is Sky sky)
             {
-                case CameraClearFlags.Skybox:
+                DrawSky(cam, target, W, H, sky);
+                Array.Clear(target.m_SurfStencil); Array.Fill(target.m_SurfDepth, 1f);
+                clear = CameraClearFlags.Nothing;
+            }
+            switch (clear)
+            {
+                case CameraClearFlags.Skybox:   // no skybox material MiniUnity can draw: the background colour, like Unity without one
                 case CameraClearFlags.SolidColor:
                 {
                     var bg = cam.backgroundColor;
@@ -82,6 +89,9 @@ namespace MiniUnity
                 }
                 case CameraClearFlags.Depth: Array.Clear(target.m_SurfStencil); Array.Fill(target.m_SurfDepth, 1f); break;
             }
+
+            // MSAA intermediate (Msaa.cs): both samples start from what the target holds after the clear
+            if (Msaa.CameraSamples(cam, target) > 1) target.BeginMultisample();
 
             // driven canvas transforms + graphic rebuild + RectMask2D clipping (Unity does this before rendering)
             Canvas.ForceUpdateCanvases();
@@ -116,6 +126,14 @@ namespace MiniUnity
                 float dist = cam.orthographic ? Vector3.Dot(tr.transform.position - cam.transform.position, fwd) : (tr.transform.position - cam.transform.position).magnitude;
                 queue.Add((tr.NInt("m_SortingLayer"), tr.sortingOrder, dist, seq++, tr, null));
             }
+            foreach (var pr in ObjectRegistry.SceneObjects(typeof(ParticleSystemRenderer), false).Cast<ParticleSystemRenderer>())
+            {
+                if (!pr.enabled || !pr.gameObject.activeInHierarchy || (cam.cullingMask & (1 << pr.gameObject.layer)) == 0) continue;
+                var ps = pr.GetComponent<ParticleSystem>();
+                if (ps == null || ps.particleCount == 0) continue;
+                float dist = cam.orthographic ? Vector3.Dot(pr.transform.position - cam.transform.position, fwd) : (pr.transform.position - cam.transform.position).magnitude;
+                queue.Add((pr.NInt("m_SortingLayer"), pr.sortingOrder, dist + pr.sortingFudge, seq++, pr, null));
+            }
             foreach (var c in canvases)
                 queue.Add((c.NInt("m_SortingLayer"), c.sortingOrder, c.renderMode == RenderMode.ScreenSpaceCamera ? c.planeDistance : Vector3.Dot(c.transform.position - cam.transform.position, fwd), seq++, null, c));
             queue.Sort((a, b) => a.layer != b.layer ? a.layer.CompareTo(b.layer) : a.order != b.order ? a.order.CompareTo(b.order)
@@ -123,9 +141,12 @@ namespace MiniUnity
             foreach (var q in queue)
                 if (q.sprite is SpriteRenderer sr) DrawSprite(sr, view);
                 else if (q.sprite is UnityEngine.Tilemaps.TilemapRenderer tmr) DrawTilemap(tmr, view);
+                else if (q.sprite is ParticleSystemRenderer psr) DrawParticles(psr, cam, view);
                 else DrawCanvas(q.canvas, view);
+            target.EndMultisample();
             target.Resolve();
             target.m_RVersion++;
+            ImageEffects.RunOnRenderImage(cam, target);
         }
 
         internal sealed class View
@@ -200,6 +221,49 @@ namespace MiniUnity
             Raster(view, sh, mesh, idx, Matrix4x4.identity, 1, Color.white, false, mat);
         }
 
+        // ------------------------------------------------------------------ ParticleSystemRenderer (camera-facing quads)
+        static void DrawParticles(ParticleSystemRenderer pr, Camera cam, View view)
+        {
+            var ps = pr.GetComponent<ParticleSystem>();
+            var list = ps.S.particles;
+            if (list.Count == 0) return;
+            var mat = pr.sharedMaterial; var tex = mat != null && mat.HasProperty("_MainTex") ? mat.mainTexture : null;
+            bool local = ps.S.simulationSpace == ParticleSystemSimulationSpace.Local;
+            var M = ps.transform.localToWorldMatrix;
+            var right = cam.transform.right; var up = cam.transform.up;
+            var mode = pr.renderMode;
+            if (mode == ParticleSystemRenderMode.HorizontalBillboard) { right = Vector3.right; up = Vector3.forward; }
+            else if (mode == ParticleSystemRenderMode.VerticalBillboard) { up = Vector3.up; right = Vector3.Cross(Vector3.up, cam.transform.forward).normalized; if (right.sqrMagnitude < 1e-8f) right = Vector3.right; right = -right; }
+            float maxSize = pr.maxParticleSize, minSize = pr.minParticleSize;
+            int n = list.Count;
+            var pos = new Vector3[n * 4]; var col = new Color[n * 4]; var uv = new Vector4[n * 4]; var nrm = new Vector3[n * 4]; var idx = new int[n * 6];
+            for (int i = 0; i < n; i++)
+            {
+                var p = list[i];
+                var c = local ? M.MultiplyPoint3x4(p.position) : p.position;
+                var size = ps.CurrentSize3D(p);
+                // maxParticleSize / minParticleSize: fractions of the viewport height at the particle's distance
+                float viewH = cam.orthographic ? 2 * cam.orthographicSize : 2 * Mathf.Max(0.01f, Vector3.Dot(c - cam.transform.position, cam.transform.forward)) * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+                float s = Mathf.Max(size.x, size.y);
+                if (maxSize > 0 && s > maxSize * viewH) size *= maxSize * viewH / s;
+                if (minSize > 0 && s < minSize * viewH && s > 0) size *= minSize * viewH / s;
+                float rot = -p.rotation * Mathf.Deg2Rad, cs = Mathf.Cos(rot), sn = Mathf.Sin(rot);
+                var rx = (right * cs + up * sn) * (size.x * 0.5f); var uy = (-right * sn + up * cs) * (size.y * 0.5f);
+                Color pc = ps.CurrentColor(p);
+                int v = i * 4;
+                pos[v] = c - rx - uy; pos[v + 1] = c - rx + uy; pos[v + 2] = c + rx + uy; pos[v + 3] = c + rx - uy;
+                uv[v] = new Vector4(0, 0, 0, 0); uv[v + 1] = new Vector4(0, 1, 0, 0); uv[v + 2] = new Vector4(1, 1, 0, 0); uv[v + 3] = new Vector4(1, 0, 0, 0);
+                for (int k = 0; k < 4; k++) { col[v + k] = pc; nrm[v + k] = -cam.transform.forward; }
+                int o = i * 6; idx[o] = v; idx[o + 1] = v + 1; idx[o + 2] = v + 2; idx[o + 3] = v + 2; idx[o + 4] = v + 3; idx[o + 5] = v;
+            }
+            var mesh = new MeshSnapshot { pos = pos, col = col, uv0 = uv, uv1 = new Vector4[n * 4], nrm = nrm };
+            mesh.sub.Add(idx);
+            var sh = new UIDefault(mat, tex) { view = view, model = Matrix4x4.identity, local = Matrix4x4.identity };
+            sh.SetupFrame();
+            DrawCalls++;
+            Raster(view, sh, mesh, idx, Matrix4x4.identity, 1, Color.white, false, mat);
+        }
+
         // ------------------------------------------------------------------ TilemapRenderer (every tile's sprite, Sprites/Default)
         static void DrawTilemap(UnityEngine.Tilemaps.TilemapRenderer tr, View view)
         {
@@ -269,7 +333,7 @@ namespace MiniUnity
                 var mat = cr.GetMaterial(sm) ?? Canvas.GetDefaultCanvasMaterial();
                 string sname = ShaderName(mat.shader);
                 var tex = sm == 0 && cr.m_Texture != null ? cr.m_Texture : (mat.HasProperty("_MainTex") ? mat.mainTexture : null) ?? cr.m_Texture;
-                Shading sh = sname.StartsWith("TextMeshPro/Mobile/Distance Field") || sname.StartsWith("TextMeshPro/Distance Field")
+                Shading sh = IsTmpSdf(sname)
                     ? new TmpSdfMobile(mat, tex)
                     : new UIDefault(mat, tex);
                 if (sh is UIDefault && sname != "UI/Default" && sname != "Sprites/Default" && s_Warned.Add(sname))
@@ -282,8 +346,23 @@ namespace MiniUnity
             }
         }
 
+        internal static bool IsTmpSdf(string shaderName) => shaderName.StartsWith("TextMeshPro/Mobile/Distance Field") || shaderName.StartsWith("TextMeshPro/Distance Field");
+
+        /// <summary>World-space TextMeshPro: the mesh drawn with the SDF text shader in the 3D pass (ZTest LEqual against the scene,
+        /// ZWrite Off, Cull Off). TMP already writes linear vertex colours for non-UI text in a linear project.</summary>
+        internal static void DrawWorldText(Mesh mesh, int sub, Material mat, Matrix4x4 M, View view)
+        {
+            var snap = MeshSnapshot.Of(mesh);
+            if (snap.pos.Length == 0 || sub >= snap.sub.Count || snap.sub[sub].Length < 3) return;
+            var tex = mat.HasProperty("_MainTex") ? mat.mainTexture : null;
+            var sh = new TmpSdfMobile(mat, tex) { view = view, model = M, local = Matrix4x4.identity };
+            sh.SetupFrame();
+            DrawCalls++;
+            Raster(view, sh, snap, snap.sub[sub], Matrix4x4.identity, 1, Color.white, true, mat, depthTest: true);
+        }
+
         // ------------------------------------------------------------------ rasterizer
-        static void Raster(View view, Shading sh, MeshSnapshot mesh, int[] idx, Matrix4x4 local, float inherited, Color crc, bool gammaVC, Material mat)
+        static void Raster(View view, Shading sh, MeshSnapshot mesh, int[] idx, Matrix4x4 local, float inherited, Color crc, bool gammaVC, Material mat, bool depthTest = false)
         {
             int n = mesh.pos.Length, nv = sh.Varyings;
             var clipPos = new Vector4[n];
@@ -313,7 +392,10 @@ namespace MiniUnity
 
             var st = new Stencil(mat);
             int W = view.W, H = view.H;
-            var color = view.target.m_SurfColor; var sten = view.target.m_SurfStencil;
+            int ns = view.target.m_MS;
+            var colors = new[] { view.target.SampleColor(0), ns > 1 ? view.target.SampleColor(1) : null };
+            var stens = new[] { view.target.SampleStencil(0), ns > 1 ? view.target.SampleStencil(1) : null };
+            var depths = new[] { view.target.SampleDepth(0), ns > 1 ? view.target.SampleDepth(1) : null };
             bool srgb = view.target.m_SRGB;
             int cm = mat != null && mat.HasProperty("_ColorMask") ? (int)mat.GetFloat("_ColorMask") : 15;
             // triangle setup once; then the pixels, in bands of rows: every band walks all triangles in order, so each pixel still
@@ -330,6 +412,7 @@ namespace MiniUnity
                 T.sx0 = (c0.x / c0.w * 0.5f + 0.5f) * W; T.sy0 = (c0.y / c0.w * 0.5f + 0.5f) * H; T.iw0 = 1 / c0.w;
                 T.sx1 = (c1.x / c1.w * 0.5f + 0.5f) * W; T.sy1 = (c1.y / c1.w * 0.5f + 0.5f) * H; T.iw1 = 1 / c1.w;
                 T.sx2 = (c2.x / c2.w * 0.5f + 0.5f) * W; T.sy2 = (c2.y / c2.w * 0.5f + 0.5f) * H; T.iw2 = 1 / c2.w;
+                T.z0 = c0.z / c0.w * .5f + .5f; T.z1 = c1.z / c1.w * .5f + .5f; T.z2 = c2.z / c2.w * .5f + .5f;
                 float area = (T.sx1 - T.sx0) * (T.sy2 - T.sy0) - (T.sx2 - T.sx0) * (T.sy1 - T.sy0);
                 if (MathF.Abs(area) < 1e-8f) continue;
                 T.minX = Math.Max(0, (int)MathF.Floor(MathF.Min(T.sx0, MathF.Min(T.sx1, T.sx2)))); T.maxX = Math.Min(W - 1, (int)MathF.Ceiling(MathF.Max(T.sx0, MathF.Max(T.sx1, T.sx2))));
@@ -363,24 +446,47 @@ namespace MiniUnity
                             float w0 = ((T.sx2 - T.sx1) * (py - T.sy1) - (T.sy2 - T.sy1) * (px - T.sx1)) * T.ia;
                             float w1 = ((T.sx0 - T.sx2) * (py - T.sy2) - (T.sy0 - T.sy2) * (px - T.sx2)) * T.ia;
                             float w2 = 1 - w0 - w1;
-                            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-                            if ((w0 == 0 && !T.tl0) || (w1 == 0 && !T.tl1) || (w2 == 0 && !T.tl2)) continue;
+                            int mask;
+                            if (ns == 1)
+                            {
+                                if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+                                if ((w0 == 0 && !T.tl0) || (w1 == 0 && !T.tl1) || (w2 == 0 && !T.tl2)) continue;
+                                mask = 1;
+                            }
+                            else if ((mask = Msaa.Coverage(T.sx0, T.sy0, T.sx1, T.sy1, T.sx2, T.sy2, T.ia, T.tl0, T.tl1, T.tl2, x, y, ns)) == 0) continue;
                             int pi = y * W + x;
-                            if (st.test && !st.Pass(sten[pi])) continue;
-                            // perspective-correct interpolation
+                            int pass = 0;
+                            for (int smp = 0; smp < ns; smp++)
+                            {
+                                if ((mask & (1 << smp)) == 0) continue;
+                                if (depthTest)
+                                {
+                                    float z = ns == 1 ? w0 * T.z0 + w1 * T.z1 + w2 * T.z2 : Msaa.DepthAt(T.sx0, T.sy0, T.sx1, T.sy1, T.sx2, T.sy2, T.ia, T.z0, T.z1, T.z2, x, y, smp, ns);
+                                    if (z > depths[smp][pi] || z < 0) continue;
+                                }
+                                if (st.test && !st.Pass(stens[smp][pi])) continue;
+                                pass |= 1 << smp;
+                            }
+                            if (pass == 0) continue;
+                            // perspective-correct interpolation (at the pixel centre, also for partly covered MSAA pixels)
                             float p0 = w0 * T.iw0, p1 = w1 * T.iw1, p2 = w2 * T.iw2, ps = 1 / (p0 + p1 + p2);
                             p0 *= ps; p1 *= ps; p2 *= ps;
                             for (int k = 0; k < nv; k++) vv[k] = vary[T.o0 + k] * p0 + vary[T.o1 + k] * p1 + vary[T.o2 + k] * p2;
                             if (!sh.Fragment(vv, out float fr, out float fg, out float fb, out float fa)) continue;
-                            if (st.write) sten[pi] = st.Apply(sten[pi]);
-                            if (cm == 0) continue;
-                            pixels++;
-                            int o = pi * 4;
+                            if (cm != 0) pixels++;
                             float ia2 = 1 - fa;
-                            if ((cm & 8) != 0) color[o] = Blend(color[o], fr, ia2, srgb);
-                            if ((cm & 4) != 0) color[o + 1] = Blend(color[o + 1], fg, ia2, srgb);
-                            if ((cm & 2) != 0) color[o + 2] = Blend(color[o + 2], fb, ia2, srgb);
-                            if ((cm & 1) != 0) color[o + 3] = B(fa + color[o + 3] / 255f * ia2);
+                            for (int smp = 0; smp < ns; smp++)
+                            {
+                                if ((pass & (1 << smp)) == 0) continue;
+                                var sten = stens[smp]; var color = colors[smp];
+                                if (st.write) sten[pi] = st.Apply(sten[pi]);
+                                if (cm == 0) continue;
+                                int o = pi * 4;
+                                if ((cm & 8) != 0) color[o] = Blend(color[o], fr, ia2, srgb);
+                                if ((cm & 4) != 0) color[o + 1] = Blend(color[o + 1], fg, ia2, srgb);
+                                if ((cm & 2) != 0) color[o + 2] = Blend(color[o + 2], fb, ia2, srgb);
+                                if ((cm & 1) != 0) color[o + 3] = B(fa + color[o + 3] / 255f * ia2);
+                            }
                         }
                     }
                 }
@@ -396,7 +502,7 @@ namespace MiniUnity
 
         struct UiTri
         {
-            public float sx0, sx1, sx2, sy0, sy1, sy2, iw0, iw1, iw2, ia;
+            public float sx0, sx1, sx2, sy0, sy1, sy2, iw0, iw1, iw2, ia, z0, z1, z2;
             public int minX, maxX, minY, maxY, o0, o1, o2;
             public bool tl0, tl1, tl2;
         }
@@ -406,6 +512,32 @@ namespace MiniUnity
             if (srgb) return Enc(src + TextureData.SrgbToLinear[dst] * oneMinusSrcA);
             return B(src + dst / 255f * oneMinusSrcA);
         }
+        /// <summary>Skybox clear: every pixel gets the sky's radiance along its view ray (through the far plane), sun disk included.</summary>
+        static void DrawSky(Camera cam, RenderTexture target, int W, int H, Sky sky)
+        {
+            var V = Matrix4x4.Scale(new Vector3(1, 1, -1)) * cam.transform.worldToLocalMatrix;
+            var inv = (cam.projectionMatrix * V).inverse;
+            var camPos = cam.transform.position;
+            var c = target.m_SurfColor; bool srgb = target.m_SRGB;
+            bool ortho = cam.orthographic; var fwd = cam.transform.forward;
+            System.Threading.Tasks.Parallel.For(0, H, y =>
+            {
+                float ny = (y + .5f) / H * 2 - 1;
+                for (int x = 0; x < W; x++)
+                {
+                    float nx = (x + .5f) / W * 2 - 1;
+                    var p = inv * new Vector4(nx, ny, 1, 1);
+                    var d = (new Vector3(p.x, p.y, p.z) / p.w - camPos).normalized;
+                    if (ortho) d = fwd;   // the sky sphere seen through an orthographic projection: the forward direction
+                    var col = sky.Radiance(d, true);
+                    int o = (y * W + x) * 4;
+                    if (srgb) { c[o] = Enc(col.r); c[o + 1] = Enc(col.g); c[o + 2] = Enc(col.b); }
+                    else { c[o] = B(col.r); c[o + 1] = B(col.g); c[o + 2] = B(col.b); }
+                    c[o + 3] = 255;
+                }
+            });
+        }
+
         static byte Enc(float lin) => TextureData.LinearToSrgbByte(lin);
         static byte B(float v) => (byte)Math.Clamp((int)MathF.Round(v * 255f), 0, 255);
         static float Lin(this float g) => Mathf.GammaToLinearSpace(g);

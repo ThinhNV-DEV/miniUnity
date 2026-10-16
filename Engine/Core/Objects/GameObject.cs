@@ -33,14 +33,15 @@ namespace UnityEngine
 
         public Transform transform { get { ThrowIfDestroyed(); return m_Transform; } }
         public GameObject gameObject => this;
-        public int layer { get => m_Layer; set { m_Layer = value; s_SceneEdits++; } }
-        public string tag { get => m_Tag; set => m_Tag = value ?? "Untagged"; }
-        public bool CompareTag(string tag) => m_Tag == tag;
-        public bool activeSelf => m_IsActive;
+        public int layer { get { ThrowIfFakeNull(); return m_Layer; } set { ThrowIfFakeNull(); m_Layer = value; s_SceneEdits++; } }
+        public string tag { get { ThrowIfFakeNull(); return m_Tag; } set { ThrowIfFakeNull(); m_Tag = value ?? "Untagged"; } }
+        public bool CompareTag(string tag) { ThrowIfFakeNull(); return m_Tag == tag; }
+        public bool activeSelf { get { ThrowIfFakeNull(); return m_IsActive; } }
         public bool activeInHierarchy
         {
             get
             {
+                ThrowIfFakeNull();
                 if (m_Asset != null || m_InPrefabAsset) return false;
                 for (var t = m_Transform; t != null; t = t.m_Parent) if (!t.gameObject.m_IsActive) return false;
                 return true;
@@ -55,6 +56,7 @@ namespace UnityEngine
 
         public void SetActive(bool value)
         {
+            ThrowIfFakeNull();
             if (m_IsActive == value) return;
             s_SceneEdits++;
             bool wasActive = activeInHierarchy;
@@ -64,11 +66,12 @@ namespace UnityEngine
         }
 
         // ---------------- components ----------------
-        public Component AddComponent(Type componentType) => Lifecycle.AddComponent(this, componentType);
+        public Component AddComponent(Type componentType) { ThrowIfFakeNull(); return Lifecycle.AddComponent(this, componentType); }
         public T AddComponent<T>() where T : Component => (T)Lifecycle.AddComponent(this, typeof(T));
 
         public Component GetComponent(Type type)
         {
+            ThrowIfFakeNull();
             foreach (var c in m_Components) if (!c.m_Destroyed && type.IsInstanceOfType(c)) return c;
             return null;
         }
@@ -184,9 +187,10 @@ namespace UnityEngine
         internal bool m_Enabled = true;
         public bool enabled
         {
-            get => m_Enabled;
+            get { ThrowIfFakeNull(); return m_Enabled; }
             set
             {
+                ThrowIfFakeNull();
                 if (m_Enabled == value) return;
                 s_SceneEdits++;
                 bool was = isActiveAndEnabled;

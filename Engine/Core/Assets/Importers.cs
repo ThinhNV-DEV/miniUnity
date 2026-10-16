@@ -108,6 +108,8 @@ namespace MiniUnity
                 case ".cs":
                     break;
                 default:
+                    // models and other assets only Unity imports: its import result in Library/Artifacts, when there is one
+                    if (ImportArtifacts.DocsFor(la.Path) is { Count: > 0 } docs) { AssetLoader.LoadDocsInto(la, docs); break; }
                     if (AssetLoader.Verbose) Console.Error.WriteLine("[import] unsupported " + la.Path);
                     break;
             }

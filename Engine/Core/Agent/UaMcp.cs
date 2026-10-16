@@ -213,6 +213,7 @@ namespace MiniUnity.Agent
                     ["required"] = new JsonArray("commands"),
                 },
             });
+            foreach (var t in PlayTools()) tools.Add(t);
             return tools;
         }
 
@@ -231,6 +232,7 @@ namespace MiniUnity.Agent
         {
             var name = p?["name"]?.GetValue<string>() ?? throw new McpError(-32602, "missing tool name");
             var input = p["arguments"] as JsonObject ?? new JsonObject();
+            if (IsPlayTool(name)) return PlayTool(name, input);
             var argv = new List<string>();
             string tmp = null;
             string cmdName = name;
@@ -373,6 +375,144 @@ namespace MiniUnity.Agent
                 return (proc.ExitCode, outp.Result, e, why);
             }
             finally { lock (runLock) { runningId = null; runningProc = null; } }
+        }
+
+        // ------------------------------------------------------------------ interactive play session (play --interactive)
+        static Process s_Play;
+        static BlockingCollection<string> s_PlayReplies;
+        static readonly List<string> s_PlayOutput = new();
+
+        static readonly string[] PlayToolNames = { "play_start", "play_input", "play_step", "play_screenshot", "play_state", "play_stop" };
+        static bool IsPlayTool(string n) => Array.IndexOf(PlayToolNames, n) >= 0;
+
+        static IEnumerable<JsonObject> PlayTools()
+        {
+            JsonObject Obj(params (string k, JsonNode v)[] props) { var o = new JsonObject(); foreach (var (k, v) in props) o[k] = v; return o; }
+            JsonObject T(string type, string desc) => new() { ["type"] = type, ["description"] = desc };
+            JsonObject Tool(string name, string desc, JsonObject props, params string[] required) => new()
+            {
+                ["name"] = name, ["description"] = desc,
+                ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = props, ["required"] = new JsonArray(required.Select(r => (JsonNode)r).ToArray()) },
+            };
+            yield return Tool("play_start", "Start an interactive play session of a scene (compiles, loads, runs Awake / Start); it stays open for play_input / play_step / play_screenshot / play_state until play_stop. One session at a time; options are those of `play` (size, fps, input, watch…); {\"serve\": 8090} also opens a browser viewer at http://127.0.0.1:8090/ for a person to play",
+                Obj(("scene", T("string", "scene path, e.g. Assets/Scenes/Main.unity")), ("options", T("object", "play options: {\"size\": \"1080x1920\", \"fps\": 60, \"serve\": 8090}"))), "scene");
+            yield return Tool("play_input", "Send input to the session, --input syntax with frames counted from the next frame (\"Space\" taps for one frame, \"mouse0@1-3\", \"mouse=(400,300)\", \"Horizontal=1@1-30\", \"touch0=(100,200)@1-5\", \"pad.buttonSouth\"); `step` frames are run after it",
+                Obj(("spec", T("string", "input items")), ("step", T("integer", "frames to run after the input (default 0)"))), "spec");
+            yield return Tool("play_step", "Advance the session's player loop", Obj(("frames", T("integer", "frames (default 1)")), ("seconds", T("number", "or seconds of game time"))));
+            yield return Tool("play_screenshot", "Render every camera of the session now and return the PNG", Obj());
+            yield return Tool("play_state", "Frame, time, logs and exceptions since the last play_state, and watched values", Obj(("watch", T("string", "Path/Comp.member,… like play --watch"))));
+            yield return Tool("play_stop", "End the session; returns the usual play summary", Obj());
+        }
+
+        static JsonObject PlayTool(string name, JsonObject input)
+        {
+            JsonObject Text(JsonNode o, bool error = false) => new() { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = o.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) }), ["isError"] = error };
+            if (name == "play_start")
+            {
+                StopPlay();
+                var argv = new List<string> { "play", Str(input["scene"] ?? throw new McpError(-32602, "play_start: scene is required")), "--interactive" };
+                if (input["options"] is JsonObject opts)
+                    foreach (var (k, v) in opts)
+                    {
+                        if (v is JsonValue bv && bv.TryGetValue<bool>(out var b)) { if (b) argv.Add("--" + k); continue; }
+                        if (v == null) continue;
+                        argv.Add("--" + k); argv.Add(Str(v));
+                    }
+                var host = Environment.ProcessPath!;
+                var psi = new ProcessStartInfo(host) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false, StandardOutputEncoding = Encoding.UTF8 };
+                if (Path.GetFileNameWithoutExtension(host) == "dotnet") psi.ArgumentList.Add(typeof(UaMcp).Assembly.Location);
+                psi.ArgumentList.Add("ua"); psi.ArgumentList.Add(root);
+                foreach (var x in argv) psi.ArgumentList.Add(x);
+                var proc = Process.Start(psi)!;
+                var replies = new BlockingCollection<string>();
+                lock (s_PlayOutput) s_PlayOutput.Clear();
+                new Thread(() =>
+                {
+                    string l;
+                    while ((l = proc.StandardOutput.ReadLine()) != null)
+                    {
+                        if (l.StartsWith("@mu ", StringComparison.Ordinal)) replies.Add(l[4..]);
+                        else lock (s_PlayOutput) s_PlayOutput.Add(l);
+                    }
+                    replies.CompleteAdding();
+                }) { IsBackground = true }.Start();
+                proc.ErrorDataReceived += (_, __) => { };
+                proc.BeginErrorReadLine();
+                s_Play = proc; s_PlayReplies = replies;
+                var ready = Reply(900);
+                if (ready == null)
+                {
+                    string output; lock (s_PlayOutput) output = string.Join("\n", s_PlayOutput);
+                    StopPlay();
+                    JsonNode parsed = null; try { parsed = JsonNode.Parse(output); } catch (JsonException) { }
+                    return Text(parsed ?? new JsonObject { ["ok"] = false, ["error"] = "the session did not start", ["output"] = output }, true);
+                }
+                return Text(ready);
+            }
+            if (s_Play == null || s_Play.HasExited) return Text(new JsonObject { ["ok"] = false, ["error"] = "no play session (play_start first)" }, true);
+            switch (name)
+            {
+                case "play_input":
+                {
+                    var r = PlaySend(new JsonObject { ["cmd"] = "input", ["spec"] = Str(input["spec"]) });
+                    int step = input["step"] is JsonValue sv && sv.TryGetValue<int>(out var n) ? n : 0;
+                    if (step > 0 && r?["ok"]?.GetValue<bool>() == true) r = PlaySend(new JsonObject { ["cmd"] = "step", ["frames"] = step });
+                    return Text(r ?? Dead(), r == null || r["ok"]?.GetValue<bool>() != true);
+                }
+                case "play_step":
+                {
+                    var c = new JsonObject { ["cmd"] = "step" };
+                    if (input["seconds"] != null) c["seconds"] = input["seconds"]!.DeepClone(); else c["frames"] = input["frames"]?.DeepClone() ?? 1;
+                    var r = PlaySend(c, 900);
+                    return Text(r ?? Dead(), r == null);
+                }
+                case "play_screenshot":
+                {
+                    var r = PlaySend(new JsonObject { ["cmd"] = "screenshot", ["inline"] = true }, 300);
+                    if (r == null) return Text(Dead(), true);
+                    var png = r["png"]?.GetValue<string>(); r.Remove("png");
+                    var res = Text(r);
+                    if (png != null) ((JsonArray)res["content"]!).Add(new JsonObject { ["type"] = "image", ["mimeType"] = "image/png", ["data"] = png });
+                    return res;
+                }
+                case "play_state":
+                {
+                    var r = PlaySend(new JsonObject { ["cmd"] = "state" });
+                    if (r != null && input["watch"] is JsonNode w) r["watch"] = PlaySend(new JsonObject { ["cmd"] = "watch", ["paths"] = Str(w) })?["watch"]?.DeepClone();
+                    return Text(r ?? Dead(), r == null);
+                }
+                default:   // play_stop
+                {
+                    PlaySend(new JsonObject { ["cmd"] = "quit" });
+                    s_Play.WaitForExit(30000);
+                    string output; lock (s_PlayOutput) output = string.Join("\n", s_PlayOutput);
+                    StopPlay();
+                    JsonNode parsed = null; try { parsed = JsonNode.Parse(output); } catch (JsonException) { }
+                    return Text(parsed ?? new JsonObject { ["ok"] = true, ["output"] = output });
+                }
+            }
+        }
+
+        static JsonObject Dead() => new() { ["ok"] = false, ["error"] = "the play session ended" };
+
+        static JsonObject PlaySend(JsonObject cmd, int timeoutSeconds = 120)
+        {
+            try { s_Play.StandardInput.WriteLine(cmd.ToJsonString()); s_Play.StandardInput.Flush(); }
+            catch (IOException) { return null; }
+            return Reply(timeoutSeconds);
+        }
+
+        static JsonObject Reply(int timeoutSeconds)
+        {
+            try { return s_PlayReplies.TryTake(out var l, TimeSpan.FromSeconds(timeoutSeconds)) ? JsonNode.Parse(l) as JsonObject : null; }
+            catch (InvalidOperationException) { return null; }
+        }
+
+        static void StopPlay()
+        {
+            if (s_Play == null) return;
+            try { if (!s_Play.HasExited) { s_Play.StandardInput.Close(); if (!s_Play.WaitForExit(5000)) Kill(s_Play); } } catch (Exception) { }
+            s_Play.Dispose(); s_Play = null; s_PlayReplies = null;
         }
     }
 }

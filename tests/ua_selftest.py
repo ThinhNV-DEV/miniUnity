@@ -368,14 +368,101 @@ public class PlayTests
         ua3("comp.set", "Assets/Main.unity", "Wheel", "Spinner", "failOnFrame3", "1")
         r = ua3("play", "Assets/Main.unity", "--frames", "60", "--input", "Space@10", "--watch", "Wheel/Spinner.updates")
         ex = r.get("exceptions", [])
+        w("play.json", json.dumps({"exceptions": [{"type": "System.NotImplementedException", "file": "Assets/Scripts/Gap.cs", "line": 3, "count": 2,
+                                               "miniunity": "API not implemented by MiniUnity (works in Unity): UnityEngine.Terrain.activeTerrain"}]}))
         check(r["ok"] and r["watch"]["Wheel/Spinner.updates"] == 60, "play: Update ran 60 frames")
-        check(len(ex) == 1 and ex[0]["type"] == "System.NullReferenceException" and ex[0]["file"] == "Assets/Scripts/Spinner.cs" and ex[0]["line"] == 16, "play: exception with project file:line")
+        check(len(ex) == 1 and ex[0]["type"] == "UnityEngine.UnassignedReferenceException" and ex[0]["file"] == "Assets/Scripts/Spinner.cs" and ex[0]["line"] == 16
+              and ex[0]["message"].startswith("The variable target of Spinner has not been assigned."), "play: exception with project file:line (unassigned field: Unity's fake null)")
         msgs = [l["message"] for l in r.get("logs", [])]
         check("Awake Wheel" in msgs and "half second" in msgs and "jump at 10" in msgs, "play: Awake, coroutine WaitForSeconds, scripted input")
+        w("Assets/Editor/HelloWindow.cs", """using UnityEditor;
+using UnityEngine;
+public class HelloWindow : EditorWindow
+{
+    enum Mode { Slow, Fast }
+    [SerializeField] int count = 2;
+    [SerializeField] string who = "x";
+    bool fancy; Mode mode;
+    [MenuItem("Tools/Hello Window")] static void Open() => GetWindow<HelloWindow>("Hello");
+    [MenuItem("Tools/Say Hi")] static void Hi() => Debug.Log("hi from menu");
+    void OnGUI()
+    {
+        EditorGUILayout.LabelField("Settings", EditorStyles.boldLabel);
+        count = EditorGUILayout.IntField("Count", count);
+        who = EditorGUILayout.TextField("Who", who);
+        mode = (Mode)EditorGUILayout.EnumPopup("Mode", mode);
+        using (new EditorGUI.DisabledScope(count <= 0))
+            if (GUILayout.Button("Go")) Debug.Log($"go {who} {count} {mode}");
+        using (var c = new EditorGUI.ChangeCheckScope())
+        {
+            fancy = EditorGUILayout.Toggle("Fancy", fancy);
+            if (c.changed) Debug.Log("fancy " + fancy);
+        }
+    }
+}
+""")
+        r = ua3("menu", "Tools/Say Hi")
+        check(r["ok"] and any(l["message"] == "hi from menu" for l in r["logs"]), "menu: runs a [MenuItem] of the project")
+        r = ua3("window", "Tools/Hello Window", "--set", "Count=3;Who=bob;Mode=Fast;Fancy=true", "--click", "Go")
+        msgs = [l["message"] for l in r.get("logs", [])]
+        ctl = {c["label"]: c for c in r.get("controls", [])}
+        check(r["ok"] and r["title"] == "Hello" and "go bob 3 Fast" in msgs and "fancy True" in msgs and ctl["Count"]["value"] == "3" and ctl["Mode"]["value"] == "Fast",
+              "window: OnGUI headless, --set fields (int, text, enum, toggle + ChangeCheckScope), --click a button")
+        r = ua3("window", "HelloWindow", "--set", "Count=0", "--click", "Go")
+        check(not r["ok"] and "no enabled button 'Go'" in r["error"], "window: a button inside a DisabledScope cannot be clicked")
+        w("Assets/Scripts/Gap.cs", "public static class Gap\n{\n    public static object T() => UnityEngine.Terrain.activeTerrain;\n}\n")
+        r = ua3("apigap", "--from", os.path.join(p3, "play.json"))
+        stub = {x["member"]: x for x in r.get("stub", [])}
+        check(r["ok"] and "UnityEngine.Terrain.activeTerrain" in stub and stub["UnityEngine.Terrain.activeTerrain"]["sites"] == ["Assets/Scripts/Gap.cs:3"]
+              and r["summary"]["missing"] == 0, "apigap: a stub member the project calls, with its file:line")
+        check(stub.get("UnityEngine.Terrain.activeTerrain", {}).get("hitAtRuntime") == 2 and r["runtime"][0]["count"] == 2, "apigap --from: exceptions hit at run time")
         w("Editor.log", "Assets/A.cs(3,5): error CS0103: The name 'x' does not exist in the current context\nNullReferenceException: Object reference not set to an instance of an object\nA.Update () (at Assets/A.cs:9)\n\nNullReferenceException: Object reference not set to an instance of an object\nA.Update () (at Assets/A.cs:9)\n")
         r = ua3("log.analyze", "Editor.log")
         check(r["compileErrors"][0]["id"] == "CS0103" and r["exceptions"][0]["count"] == 2 and r["exceptions"][0]["line"] == 9, "log.analyze groups compile errors and exceptions")
+
+        # interactive play through MCP: a click on a cube reaches its OnMouseDown
+        w("Assets/Scripts/ClickMe.cs", """using UnityEngine;
+public class ClickMe : MonoBehaviour
+{
+    void OnMouseDown() => Debug.Log("clicked " + name);
+    void OnMouseUpAsButton() => Debug.Log("button " + name);
+}
+""")
+        ua3("asset.import", "Assets/Scripts/ClickMe.cs")
+        r1 = ua3("scene.new", "Assets/Click.unity")
+        r2 = ua3("go.create", "Assets/Click.unity", "Cam", "--components", "Camera", "--position", json.dumps({"x": 0, "y": 0, "z": -10}))
+        r3 = ua3("go.create", "Assets/Click.unity", "Box", "--components", "BoxCollider,ClickMe")
+        check(r1["ok"] and r2["ok"] and r3["ok"], "click scene built" + ("" if r1["ok"] and r2["ok"] and r3["ok"] else f" ({r1.get('error')} / {r2.get('error')} / {r3.get('error')})"))
+        mp3 = subprocess.Popen([DOTNET, DLL, "mcp", p3], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+        def rpc3(i, name, args):
+            mp3.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": name, "arguments": args}}) + "\n"); mp3.stdin.flush()
+            return json.loads(mp3.stdout.readline())["result"]
+        mp3.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}}}) + "\n"); mp3.stdin.flush(); mp3.stdout.readline()
+        r = rpc3(1, "play_start", {"scene": "Assets/Click.unity", "options": {"size": "320x180"}})
+        check(not r["isError"] and '"ready": true' in r["content"][0]["text"], "MCP play_start opens an interactive session")
+        ri = rpc3(2, "play_input", {"spec": "mouse=(160,90),mouse0@1-2", "step": 4})
+        r = rpc3(3, "play_state", {"watch": "Box/Transform.position"})
+        st = json.loads(r["content"][0]["text"])
+        msgs = [l["message"] for l in st.get("logs", [])]
+        check("clicked Box" in msgs and "button Box" in msgs, "play_input mouse0 over a collider → OnMouseDown / OnMouseUpAsButton" + ("" if "clicked Box" in msgs else f" (input: {ri['content'][0]['text'][:400]} state: {json.dumps(st)[:400]})"))
+        r = rpc3(4, "play_screenshot", {})
+        check(any(c.get("type") == "image" for c in r["content"]), "play_screenshot returns the frame as an image")
+        r = rpc3(5, "play_stop", {})
+        check(not r["isError"], "play_stop ends the session")
+        mp3.stdin.close(); mp3.wait()
         shutil.rmtree(p3)
+
+    print("binary SerializedFile (Unity's unity_builtin_extra)")
+    import glob as _glob
+    extra = next(iter(sorted(_glob.glob(os.path.join(MU, ".cache/unity/*/Editor/Data/Resources/unity_builtin_extra")))), None)
+    if extra:
+        r = ua("serialized.dump", extra, "--id", "10304")
+        o = (r.get("objects") or [{}])[0]
+        check(r["ok"] and r["version"] == 22 and r["typeTree"] and o.get("name") == "Default-Skybox" and "_Exposure: 1.3" in o.get("yaml", "")
+              and "m_Shader: {fileID: 106}" in o.get("yaml", ""), "serialized.dump reads a Unity binary file: Default-Skybox as YAML")
+        r = ua("serialized.dump", extra, "--type", "Material")
+        check(r["ok"] and {"Default-Material", "Sprites-Default"} <= {x.get("name") for x in r["objects"]}, "serialized.dump --type lists objects by type")
+    else: print("  skip (no Unity Editor data in MiniUnity/.cache)")
 
     print("robustness: bad options, writes outside the project, batch")
     r = ua("asset.find", "--limit", "abc", expect_ok=False)

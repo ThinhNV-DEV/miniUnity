@@ -119,3 +119,93 @@ solo = solo[:j] + "m_Solo: 1" + solo[j + len("m_Solo: 0"):]
 sp = os.path.join(d, "SoloMixer.mixer")
 open(sp, "w").write(solo)
 open(sp + ".meta", "w").write("fileFormatVersion: 2\nguid: d0000000000000000000000000000005\nNativeFormatImporter:\n  externalObjects: {}\n  mainObjectFileID: 24100000\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")
+
+# a mixer with effects (AudioMixerEffectTests): Master ← Music (Lowpass 100 Hz) / SFX (Send 0 dB → Reverb) / Reverb (Receive,
+# SFX Reverb: dry off, room 0 mB, 2 s decay)
+def effect(fid, name, params=(), send_target=0, mix_level="00000000000000000000000000000000"):
+    p = "".join(f"\n  - m_ParameterName: {n}\n    m_GUID: {g}" for n, g in params) if params else " []"
+    return f"""--- !u!244 &{fid}
+AudioMixerEffectController:
+  m_ObjectHideFlags: 3
+  m_CorrespondingSourceObject: {{fileID: 0}}
+  m_PrefabInstance: {{fileID: 0}}
+  m_PrefabAsset: {{fileID: 0}}
+  m_Name: 
+  m_EffectID: {fid:032x}
+  m_EffectName: {name}
+  m_MixLevel: {mix_level}
+  m_Parameters:{p}
+  m_SendTarget: {{fileID: {send_target}}}
+  m_EnableWetMix: 0
+  m_Bypass: 0
+"""
+def group(fid, name, gid, vol, children, effects):
+    ch = "".join(f"\n  - {{fileID: {c}}}" for c in children) if children else " []"
+    ef = "".join(f"\n  - {{fileID: {e}}}" for e in effects) if effects else " []"
+    return f"""--- !u!243 &{fid}
+AudioMixerGroupController:
+  m_ObjectHideFlags: 0
+  m_Name: {name}
+  m_AudioMixer: {{fileID: 24100000}}
+  m_GroupID: {gid}
+  m_Children:{ch}
+  m_Volume: {vol}
+  m_Pitch: c00000000000000000000000000000f1
+  m_Send: 00000000000000000000000000000000
+  m_Effects:{ef}
+  m_UserColorIndex: 0
+  m_Mute: 0
+  m_Solo: 0
+  m_BypassEffects: 0
+"""
+fx = """%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!241 &24100000
+AudioMixerController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: FxMixer
+  m_OutputGroup: {fileID: 0}
+  m_MasterGroup: {fileID: 24300002}
+  m_Snapshots:
+  - {fileID: 24500006}
+  m_StartSnapshot: {fileID: 24500006}
+  m_SuspendThreshold: -80
+  m_EnableSuspend: 1
+  m_UpdateMode: 0
+  m_ExposedParameters: []
+  m_AudioMixerGroupViews: []
+  m_CurrentViewIndex: 0
+  m_TargetSnapshot: {fileID: 24500006}
+"""
+fx += group(24300002, "Master", "b00000000000000000000000000000f1", "a00000000000000000000000000000f1", [24300004, 24300010, 24300012], [24400002])
+fx += group(24300004, "Music", "b00000000000000000000000000000f2", "a00000000000000000000000000000f2", [], [24400004, 24400006])
+fx += group(24300010, "SFX", "b00000000000000000000000000000f3", "a00000000000000000000000000000f3", [], [24400008, 24400010])
+fx += group(24300012, "Reverb", "b00000000000000000000000000000f4", "a00000000000000000000000000000f4", [], [24400012, 24400014, 24400016])
+fx += effect(24400002, "Attenuation")
+fx += effect(24400004, "Attenuation")
+fx += effect(24400006, "Lowpass", [("Cutoff freq", "f00000000000000000000000000000a1"), ("Resonance", "f00000000000000000000000000000a2")])
+fx += effect(24400008, "Attenuation")
+fx += effect(24400010, "Send", send_target=24400012, mix_level="f00000000000000000000000000000b1")
+fx += effect(24400012, "Receive")
+fx += effect(24400014, "SFX Reverb", [("Dry Level", "f00000000000000000000000000000c1"), ("Room", "f00000000000000000000000000000c2"), ("Decay Time", "f00000000000000000000000000000c3")])
+fx += effect(24400016, "Attenuation")
+fx += """--- !u!245 &24500006
+AudioMixerSnapshotController:
+  m_ObjectHideFlags: 0
+  m_Name: Snapshot
+  m_AudioMixer: {fileID: 24100000}
+  m_SnapshotID: e00000000000000000000000000000f1
+  m_FloatValues:
+    f00000000000000000000000000000a1: 100
+    f00000000000000000000000000000b1: 0
+    f00000000000000000000000000000c1: -10000
+    f00000000000000000000000000000c2: 0
+    f00000000000000000000000000000c3: 2
+  m_TransitionOverrides: {}
+"""
+fp = os.path.join(d, "FxMixer.mixer")
+open(fp, "w").write(fx)
+open(fp + ".meta", "w").write("fileFormatVersion: 2\nguid: d0000000000000000000000000000006\nNativeFormatImporter:\n  externalObjects: {}\n  mainObjectFileID: 24100000\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n")

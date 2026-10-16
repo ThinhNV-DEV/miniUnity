@@ -107,7 +107,7 @@ namespace MiniUnity.Agent
 
         static void RegisterTestCommands()
         {
-            Reg("play", "play <scene.unity> [--frames n | --seconds s] [--fps 60] [--watch Path/Comp.member,…] [--input Space@10,mouse0@5-8,Horizontal=1@20-40] [--max-logs n] [--audio-out mix.wav] [--screenshot out.png[@seconds,…] --size 1080x1920] [--call Path/Comp.Method@seconds,…]   run the scene in MiniUnity's player loop (physics, animation, audio timeline); screenshots render every camera with the software renderer", a =>
+            Reg("play", "play <scene.unity> [--frames n | --seconds s] [--fps 60] [--watch Path/Comp.member,…] [--input Space@10,mouse0@5-8,Horizontal=1@20-40] [--max-logs n] [--audio-out mix.wav] [--screenshot out.png[@seconds,…] --size 1080x1920] [--call Path/Comp.Method@seconds,…] [--interactive [--serve port]]   run the scene in MiniUnity's player loop (physics, animation, audio timeline); screenshots render every camera with the software renderer; --interactive keeps the session open for JSON commands on stdin (step / input / hold / mouse / screenshot / watch / state / call / quit, replies on lines starting with \"@mu \") and --serve adds a browser viewer to play it", a =>
             {
                 var scene = Ua.Rel(a.P(0, "scene"));
                 var (m, build, _) = RuntimeHost.CompileAndLoad(a, x => !x.Editor);
@@ -156,6 +156,19 @@ namespace MiniUnity.Agent
                     File.WriteAllBytes(Ua.Abs(file), ImageConversion.EncodeToPNG(tex));   // may be outside the project (/tmp/shot.png)
                     shotFiles.Add(JsonValue.Create(file));
                 }
+                if (a.Has("interactive") || a.Has("serve"))
+                {
+                    byte[] Grab()
+                    {
+                        shotRt ??= new RenderTexture(width, height, 24);
+                        MiniUnity.Recorder.RenderAll(shotRt);
+                        var tex = new Texture2D(shotRt.width, shotRt.height, TextureFormat.RGB24, false);
+                        RenderTexture.active = shotRt; tex.ReadPixels(new Rect(0, 0, shotRt.width, shotRt.height), 0, 0); tex.Apply(); RenderTexture.active = null;
+                        return ImageConversion.EncodeToPNG(tex);
+                    }
+                    PlaySession.Run(Grab, Watch, CallMethod, a.I("serve", 0), width, height);
+                }
+                else
                 for (int i = 0; i < frames; i++)
                 {
                     foreach (var (f, path) in calls) if (f == i) CallMethod(path);
@@ -447,6 +460,13 @@ namespace MiniUnity.Agent
                     // resumes after the next fixed step (FixedUpdate + physics), stepping frames until one ran
                     long target = Play.FixedSteps + 1;
                     while (Play.FixedSteps < target && frames++ < frameTimeout) Play.Step();
+                    continue;
+                }
+                if (y is AsyncOperation ao)
+                {
+                    // resumes on the first frame after it completed; real I/O (UnityWebRequest) runs on wall time, so frames are paced
+                    while (!ao.isDone && frames++ < frameTimeout) { if (Play.IsPlaying) Play.Step(); System.Threading.Thread.Sleep(1); }
+                    if (Play.IsPlaying) Play.Step();
                     continue;
                 }
                 if (y is CustomYieldInstruction cy)
