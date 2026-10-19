@@ -128,6 +128,7 @@ namespace MiniUnity
                 return b;
             }
             if (t.m_SourceFile != null && Png.TryDecodeFile(t.m_SourceFile, out w, out h, out var rgba)) return rgba;
+            if (t.m_SourceFile != null && ImageDecoders.TryDecodeFile(t.m_SourceFile, out w, out h, out var other)) return other;   // JPEG, TGA, PSD
             if (t.m_Native != null && DecodeYaml(t, out w, out h) is byte[] y) return y;
             return null;
         }

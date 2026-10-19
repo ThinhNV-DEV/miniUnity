@@ -48,7 +48,7 @@ namespace MiniUnity.Agent
         static void BenchWorld()
         {
             Play.Reset();
-            SceneData.Active = new SceneData { Name = "Bench" };
+            new SceneData { Name = "Bench" }.MakeOnly();
             Play.FrameDelta = 1f / 60;
         }
 
@@ -240,7 +240,7 @@ namespace MiniUnity.Agent
             Play.Reset();
             Play.FrameDelta = 1f / 60;
             var load = Stopwatch.StartNew();
-            RuntimeHost.LoadScene(scene);
+            RuntimeHost.LoadScene(scene).MakeOnly();
             MiniUnity.Screen.Width = w; MiniUnity.Screen.Height = h;
             Play.IsPlaying = true; Play.Begin();
             double loadMs = load.Elapsed.TotalMilliseconds;

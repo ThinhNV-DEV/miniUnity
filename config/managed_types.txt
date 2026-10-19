@@ -48,3 +48,9 @@ CoreModule UnityEngine.Assertions.Assert
 CoreModule UnityEngine.Assertions.AssertionException
 CoreModule UnityEngine.Assertions.AssertionMessageUtil
 CoreModule UnityEngine.ExposedReference`1
+TextRenderingModule UnityEngine.CharacterInfo
+TextRenderingModule UnityEngine.TextGenerationSettings
+CoreModule UnityEngine.SceneManagement.LoadSceneParameters
+CoreModule UnityEngine.SceneManagement.CreateSceneParameters
+CoreModule UnityEngine.RenderTextureDescriptor
+CoreModule UnityEngine.Rendering.RenderTargetIdentifier

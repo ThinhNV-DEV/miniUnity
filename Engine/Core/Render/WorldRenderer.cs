@@ -146,7 +146,7 @@ namespace MiniUnity
             Shaders.TryGetValue(sname, out var shader);
             // Standard with a texture, Cutout mode or a normal map goes through the C# Standard (same lighting); plain Standard keeps
             // the visibility-buffer path
-            if (shader == null && !RoundedBoxShaders.Contains(sname) && (m.GetTexture("_MainTex") != null || m.GetTexture("_BumpMap") != null || (m.HasProperty("_Mode") && (int)m.GetFloat("_Mode") == 1)))
+            if (shader == null && !RoundedBoxShaders.Contains(sname) && (m.GetTexture("_MainTex") != null || m.GetTexture("_BaseMap") != null || m.GetTexture("_BumpMap") != null || (m.HasProperty("_Mode") && (int)m.GetFloat("_Mode") == 1)))
                 shader = StandardTextured;
             if (shader != null)
             {

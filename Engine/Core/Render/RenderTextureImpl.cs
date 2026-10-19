@@ -58,7 +58,8 @@ namespace UnityEngine
         static RenderTexture s_Active;
 
         protected internal RenderTexture() { }
-        public RenderTexture(RenderTextureDescriptor desc) { }
+        public RenderTexture(RenderTextureDescriptor desc) { Init(Math.Max(1, desc.width), Math.Max(1, desc.height), desc.depthBufferBits, desc.sRGB || desc.graphicsFormat.ToString().Contains("SRGB")); }
+        public RenderTextureDescriptor descriptor => new RenderTextureDescriptor(m_RW, m_RH, RenderTextureFormat.ARGB32, m_Depth) { sRGB = m_SRGB };
         public RenderTexture(RenderTexture textureToCopy) { if (textureToCopy != null) Init(textureToCopy.m_RW, textureToCopy.m_RH, textureToCopy.m_Depth, textureToCopy.m_SRGB); }
         public RenderTexture(int width, int height, int depth, DefaultFormat format) { Init(width, height, depth, format != DefaultFormat.HDR); }
         public RenderTexture(int width, int height, int depth, GraphicsFormat format) { Init(width, height, depth, format.ToString().Contains("SRGB")); }
@@ -153,6 +154,9 @@ namespace UnityEngine
         public static RenderTexture GetTemporary(int width, int height, int depthBuffer) => new RenderTexture(width, height, depthBuffer);
         public static RenderTexture GetTemporary(int width, int height, int depthBuffer, RenderTextureFormat format) => new RenderTexture(width, height, depthBuffer, format);
         public static RenderTexture GetTemporary(int width, int height, int depthBuffer, RenderTextureFormat format, RenderTextureReadWrite readWrite) => new RenderTexture(width, height, depthBuffer, format, readWrite);
+        public static RenderTexture GetTemporary(int width, int height, int depthBuffer, RenderTextureFormat format, RenderTextureReadWrite readWrite, int antiAliasing) => new RenderTexture(width, height, depthBuffer, format, readWrite);
+        public static RenderTexture GetTemporary(int width, int height, int depthBuffer, GraphicsFormat format) => new RenderTexture(width, height, depthBuffer, format);
+        public static RenderTexture GetTemporary(RenderTextureDescriptor desc) => new RenderTexture(desc);
         public static void ReleaseTemporary(RenderTexture temp) { }
 
         /// <summary>Copy a block into a Texture2D (values as stored: sRGB-encoded for sRGB targets – what ReadPixels returns).</summary>

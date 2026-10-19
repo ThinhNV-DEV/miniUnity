@@ -2,7 +2,8 @@
 """Runtime fixture tests (tests/fixtures/*Tests.cs: physics 3D/2D, joints, wheels, articulations, Animator, humanoid IK, audio,
 mixer, input, particles, profiler) in a throw-away Unity project, through `ua test`.
     python3 MiniUnity/tests/run_fixtures.py [--keep] [--filter text]
-Needs a MiniUnity build, a Unity Editor (reference assemblies) and the repo's Library/PackageCache (test framework + NUnit, Timeline; the
+Needs a MiniUnity build, a Unity Editor (reference assemblies) and the package sources setup.sh fetches into .cache/packages
+(test framework + NUnit, Timeline, uGUI, PostProcessing; a host project's Library/PackageCache works too; the
 RoboHero sample of com.unity.2d.pixel-perfect for one Animator test). A fixture whose header has `// Run with: ua test --filter X
 --input "…"` is run again on its own with that input (it is skipped in the first pass, which has no scripted input)."""
 import glob, json, os, re, shutil, subprocess, sys, tempfile
@@ -11,25 +12,42 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MU = os.path.dirname(HERE)
 REPO = os.path.dirname(MU)
 FIX = os.path.join(HERE, "fixtures")
+DATA = os.path.join(HERE, "data")
 DLL = os.path.join(MU, "Engine/bin/Release/net8.0/MiniUnity.dll")
 DOTNET = os.path.join(MU, ".cache/dotnet/dotnet") if os.path.exists(os.path.join(MU, ".cache/dotnet/dotnet")) else "dotnet"
-PKGS = ["com.unity.test-framework@1.1.33", "com.unity.ext.nunit@1.0.6", "com.unity.timeline@1.7.1"]
+PKGS = [("com.unity.test-framework", "1.1.33"), ("com.unity.ext.nunit", "1.0.6"), ("com.unity.timeline", "1.7.7"), ("com.unity.ugui", "1.0.0"), ("com.unity.postprocessing", "3.4.0")]
+
+
+def package(name, version):
+    """(source folder, version) of a package: setup.sh's .cache/packages (its own version), else a host project's
+    Library/PackageCache at the given version."""
+    c = os.path.join(MU, ".cache/packages", name)
+    if os.path.isdir(c):
+        v = open(os.path.join(c, ".version")).read().strip() if os.path.exists(os.path.join(c, ".version")) else version
+        return c, v
+    c = os.path.join(REPO, "Library/PackageCache", f"{name}@{version}")
+    if os.path.isdir(c): return c, version
+    sys.exit(f"missing package {name}: run MiniUnity/setup.sh (it fetches the test framework, NUnit, Timeline, uGUI and PostProcessing into .cache/packages)")
 
 
 def make_project():
     proj = tempfile.mkdtemp(prefix="mu_fixtures_")
-    shutil.copytree(os.path.join(REPO, "ProjectSettings"), os.path.join(proj, "ProjectSettings"))
-    for pk in PKGS:
-        src = os.path.join(REPO, "Library/PackageCache", pk)
-        if not os.path.isdir(src):
-            sys.exit(f"missing {src}: open the project in Unity once or run MiniUnity/ua.sh pkg.resolve --fetch")
-        shutil.copytree(src, os.path.join(proj, "Library/PackageCache", pk))
+    # the fixtures' own ProjectSettings (tests/data): linear colour space, quality "Ultra" (2x MSAA), default tags / layers
+    shutil.copytree(os.path.join(DATA, "ProjectSettings"), os.path.join(proj, "ProjectSettings"))
+    vers = {}
+    for name, version in PKGS:
+        src, v = package(name, version)
+        vers[name] = v
+        shutil.copytree(src, os.path.join(proj, "Library/PackageCache", f"{name}@{v}"))
     os.makedirs(os.path.join(proj, "Packages"))
-    json.dump({"dependencies": {"com.unity.test-framework": "1.1.33", "com.unity.timeline": "1.7.1"}}, open(os.path.join(proj, "Packages/manifest.json"), "w"))
+    tf, nu, tl, ui, pp = vers["com.unity.test-framework"], vers["com.unity.ext.nunit"], vers["com.unity.timeline"], vers["com.unity.ugui"], vers["com.unity.postprocessing"]
+    json.dump({"dependencies": {"com.unity.test-framework": tf, "com.unity.timeline": tl, "com.unity.ugui": ui, "com.unity.postprocessing": pp}}, open(os.path.join(proj, "Packages/manifest.json"), "w"))
     json.dump({"dependencies": {
-        "com.unity.test-framework": {"version": "1.1.33", "depth": 0, "source": "registry", "dependencies": {"com.unity.ext.nunit": "1.0.6"}, "url": "https://packages.unity.com"},
-        "com.unity.ext.nunit": {"version": "1.0.6", "depth": 1, "source": "registry", "dependencies": {}, "url": "https://packages.unity.com"},
-        "com.unity.timeline": {"version": "1.7.1", "depth": 0, "source": "registry", "dependencies": {}, "url": "https://packages.unity.com"}}},
+        "com.unity.test-framework": {"version": tf, "depth": 0, "source": "registry", "dependencies": {"com.unity.ext.nunit": nu}, "url": "https://packages.unity.com"},
+        "com.unity.ext.nunit": {"version": nu, "depth": 1, "source": "registry", "dependencies": {}, "url": "https://packages.unity.com"},
+        "com.unity.timeline": {"version": tl, "depth": 0, "source": "registry", "dependencies": {}, "url": "https://packages.unity.com"},
+        "com.unity.ugui": {"version": ui, "depth": 0, "source": "builtin", "dependencies": {}},
+        "com.unity.postprocessing": {"version": pp, "depth": 0, "source": "registry", "dependencies": {}, "url": "https://packages.unity.com"}}},
         open(os.path.join(proj, "Packages/packages-lock.json"), "w"))
     tests = os.path.join(proj, "Assets/PlayTests")
     os.makedirs(tests)
@@ -38,7 +56,7 @@ def make_project():
     for f in os.listdir(FIX):
         # *EditorTests.cs use UnityEditor (AssetDatabase, PrefabUtility): an Editor-only test assembly, as in a Unity project
         if f.endswith(".cs"): shutil.copy2(os.path.join(FIX, f), editor_tests if f.endswith("EditorTests.cs") else tests)
-    json.dump({"name": "Fixtures", "references": ["UnityEngine.TestRunner", "UnityEditor.TestRunner", "Unity.Timeline"], "optionalUnityReferences": ["TestAssemblies"]},
+    json.dump({"name": "Fixtures", "references": ["UnityEngine.TestRunner", "UnityEditor.TestRunner", "Unity.Timeline", "UnityEngine.UI", "Unity.Postprocessing.Runtime"], "optionalUnityReferences": ["TestAssemblies"]},
               open(os.path.join(tests, "Fixtures.asmdef"), "w"))
     json.dump({"name": "Fixtures.Editor", "references": ["UnityEngine.TestRunner", "UnityEditor.TestRunner"], "includePlatforms": ["Editor"], "optionalUnityReferences": ["TestAssemblies"]},
               open(os.path.join(editor_tests, "Fixtures.Editor.asmdef"), "w"))
@@ -57,6 +75,12 @@ def make_project():
         names = [(21, 10303, "Default-Material"), (21, 10304, "Default-Skybox"), (28, 10904, "UISprite")]
         table = "".join(f"  - first:\n      {c}: {i}\n    second: {n}\n" for c, i, n in names)
         open(os.path.join(md, "Builtin.fbx.meta"), "w").write("fileFormatVersion: 2\nguid: 5e1f0c3a9b7d4e2f8a6c0b1d3e5f7a91\nModelImporter:\n  serializedVersion: 22200\n  internalIDToNameTable:\n" + table)
+    # models read from the FBX file (FbxImportEditorTests): an ASCII fixture and, when the Editor is there, a binary sample
+    shutil.copytree(os.path.join(FIX, "Models"), os.path.join(proj, "Assets/Models"), dirs_exist_ok=True)
+    sphere = next(iter(glob.glob(os.path.join(MU, ".cache/unity/*/Editor/Data/Resources/PackageManager/BuiltInPackages/com.unity.render-pipelines.universal/Samples~/URPPackageSamples/Shaders/Lit/Models/UVSphere.fbx"))), None)
+    if sphere: shutil.copy2(sphere, os.path.join(proj, "Assets/Models/UVSphere.fbx"))
+    # scenes of the fixture Build Settings (tests/data/ProjectSettings/EditorBuildSettings.asset): SceneLoadTests
+    shutil.copytree(os.path.join(FIX, "Scenes"), os.path.join(proj, "Assets/Scenes"))
     for script in ("animassets.py", "audioassets.py"):
         subprocess.run([sys.executable, os.path.join(FIX, script), proj], check=True, capture_output=True)
     robo = next((os.path.join(d, "RoboHero") for d, dirs, _ in os.walk(os.path.join(REPO, "Library/PackageCache")) if "RoboHero" in dirs and "pixel-perfect" in d), None)
@@ -90,7 +114,7 @@ def main():
     skipped = [t for t in tests.values() if t["result"] not in ("Passed", "Failed")]
     for t in failed: print(f"  FAIL {t['name']}: {str(t.get('message', ''))[:300]}")
     for t in skipped: print(f"  skip {t['name']}: {str(t.get('message', ''))[:120]}")
-    if not robo: print("  note: RoboHero sample not found (com.unity.2d.pixel-perfect in Library/PackageCache); its Animator test fails")
+    if not robo: print("  note: RoboHero sample not found (com.unity.2d.pixel-perfect in a host project's Library/PackageCache); its Animator test is skipped")
     print(f"{'PASS' if not failed else 'FAILED'}: {len(tests) - len(failed) - len(skipped)} passed, {len(failed)} failed, {len(skipped)} skipped · {proj}")
     if not keep and not failed: shutil.rmtree(proj)
     return 1 if failed else 0

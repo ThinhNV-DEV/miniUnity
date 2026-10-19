@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Usage: python3 animassets.py <unity project>  — writes Assets/AnimTest (Hero.controller + clips) used by AnimatorTests.cs.
 # AnimatorTests.SpriteSwapControllerFromUnitySample also needs the RoboHero sample (com.unity.2d.pixel-perfect Samples~/…/RoboHero/{Animations,Textures}) copied to Assets/RoboHero.
 # Writes hand-authored Unity-format animation assets (controller + clips + behaviour script meta) for the Animator tests.

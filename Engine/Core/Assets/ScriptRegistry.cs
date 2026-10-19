@@ -105,7 +105,10 @@ namespace MiniUnity
     /// <summary>Open scene: ordered root GameObjects.</summary>
     public sealed class SceneData
     {
-        public static SceneData Active;
+        static SceneData s_Active;
+        public static SceneData Active { get => s_Active; set { if (s_Active != value) { s_Active = value; SetVersion++; } } }
+        /// <summary>Changes when the set of scenes whose objects play (loaded scenes, the active one, DontDestroyOnLoad) changes.</summary>
+        internal static int SetVersion;
         static readonly List<SceneData> all = new();
         public readonly List<GameObject> Roots = new();
         public string Path = "";
@@ -119,11 +122,37 @@ namespace MiniUnity
             var t = SceneWriter.RenderSettingsBody;
             return YamlReader.ParseText(t);
         }
-        public bool Loaded = true;
-        public static List<SceneData> LoadedScenes => all.Where(s => s.Loaded).ToList();
-        public SceneData() { all.Add(this); Handle = all.Count; }
-        /// <summary>Single-mode load / new scene: every other scene is closed.</summary>
-        public void MakeOnly() { foreach (var s in all) if (s != this) s.Loaded = false; Loaded = true; Active = this; }
+        bool m_Loaded = true;
+        public bool Loaded { get => m_Loaded; set { if (m_Loaded != value) { m_Loaded = value; SetVersion++; } } }
+        /// <summary>The play-mode "DontDestroyOnLoad" scene: not counted by SceneManager, never unloaded by a single-mode load.</summary>
+        public bool IsDontDestroyOnLoad;
+        public static List<SceneData> LoadedScenes => all.Where(s => s.Loaded && !s.IsDontDestroyOnLoad).ToList();
+        public SceneData() { all.Add(this); Handle = all.Count; SetVersion++; }
+        /// <summary>Single-mode load / new scene: every other scene is closed (DontDestroyOnLoad objects stay).</summary>
+        public void MakeOnly() { foreach (var s in all) if (s != this && !s.IsDontDestroyOnLoad) s.Loaded = false; Loaded = true; Active = this; }
+
+        static SceneData s_DontDestroy;
+        public static SceneData DontDestroyOnLoadScene => s_DontDestroy ??= new SceneData { Name = "DontDestroyOnLoad", IsDontDestroyOnLoad = true };
+        /// <summary>Drop the DontDestroyOnLoad scene (a new play session).</summary>
+        public static void ResetDontDestroyOnLoad() { if (s_DontDestroy != null) { s_DontDestroy.Loaded = false; s_DontDestroy = null; } }
+
+        static readonly List<SceneData> s_Playing = new();
+        static int s_PlayingVersion = -1;
+        /// <summary>Scenes whose objects exist for the player loop / Find*: the active scene, the other loaded scenes in load
+        /// order, then DontDestroyOnLoad.</summary>
+        public static List<SceneData> Playing
+        {
+            get
+            {
+                if (s_PlayingVersion == SetVersion) return s_Playing;
+                s_Playing.Clear();
+                if (Active != null) s_Playing.Add(Active);
+                foreach (var s in all) if (s.Loaded && s != Active && !s.IsDontDestroyOnLoad) s_Playing.Add(s);
+                if (s_DontDestroy != null && s_DontDestroy.Loaded) s_Playing.Add(s_DontDestroy);
+                s_PlayingVersion = SetVersion;
+                return s_Playing;
+            }
+        }
         public void AddRoot(GameObject go) { if (!Roots.Contains(go)) Roots.Add(go); IsDirty = true; UnityEngine.Object.SceneEdited(); Hier.Version++; }
         public void RemoveRoot(GameObject go) { Roots.Remove(go); UnityEngine.Object.SceneEdited(); Hier.Version++; }
         public static SceneData ByHandle(int h) => h > 0 && h <= all.Count ? all[h - 1] : null;
@@ -144,7 +173,7 @@ namespace UnityEngine.SceneManagement
         public bool isLoaded => D != null && D.Loaded;
         public bool isDirty => D?.IsDirty ?? false;
         public int rootCount => D?.Roots.Count ?? 0;
-        public int buildIndex => -1;
+        public int buildIndex => D == null || D.IsDontDestroyOnLoad ? -1 : MiniUnity.SceneLoader.IndexOf(D.Path);
         public bool isSubScene { get => false; set { } }
         public GameObject[] GetRootGameObjects() => D?.Roots.ToArray() ?? Array.Empty<GameObject>();
         public void GetRootGameObjects(List<GameObject> rootGameObjects) { rootGameObjects.Clear(); if (D != null) rootGameObjects.AddRange(D.Roots); }

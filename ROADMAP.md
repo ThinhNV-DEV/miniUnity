@@ -328,3 +328,14 @@ Sau đó      Giai đoạn 4 theo nhu cầu từng game
 
 Phần còn để ngỏ: retarget humanoid (4.9), Animation playables, effect trong AudioMixer, các module ParticleSystem còn lại, vẽ
 particle; 3.2 và phần còn lại của 3.5 (lý do ghi ở Giai đoạn 3).
+
+## 6. Bổ sung sau giai đoạn 5 · ĐÃ LÀM
+
+| Việc | Kết quả |
+|---|---|
+| Tách khỏi repo video | `config/defaults.cfg` (phiên bản Unity và package khi không có project), `setup.sh --unity-version / --unity-revision`, fixture mang ProjectSettings và asset riêng (`tests/data`), mọi script có quyền thực thi, CI job `standalone` chạy MiniUnity một mình |
+| `Text` cũ của uGUI | `Font` động (atlas Alpha8 tự lớn, `Font.textureRebuilt`), `TextGenerator` (rich text, wrap, truncate, best fit, căn lề, line spacing); font builtin dùng Liberation Sans (cùng số đo Arial) |
+| `SceneManager.LoadScene` lúc chạy | theo tên / đường dẫn / build index, single và additive, async (`allowSceneActivation`), `UnloadSceneAsync`, sự kiện `sceneLoaded` / `sceneUnloaded` / `activeSceneChanged`, `DontDestroyOnLoad`; player loop, Find*, vật lý, render thấy mọi scene đã nạp |
+| Render pipeline, PostProcessing | `GraphicsSettings.currentRenderPipeline` (null với built-in), `GetShaderMode`, quality level; nhánh `UNITY_EDITOR` khi Play chạy được (`TypeCache`, `StageUtility`); PostProcessing v2 chạy trong Play (command buffer được ghi nhận nhưng không thực thi); asset trong package resolve theo `Packages/<tên>/…` |
+| FBX không cần `Library/` | đọc FBX binary / ASCII → hierarchy, mesh, material, texture; quy đổi trục, đơn vị, x lật như ModelImporter; chưa có skin / animation / camera / light |
+| Texture albedo trong shader 3D | giải mã JPEG (baseline / progressive), TGA, PSD; `_BaseMap` / `_BaseColor` (URP và shader chưa port vẽ như Standard); `ImageConversion.LoadImage` |

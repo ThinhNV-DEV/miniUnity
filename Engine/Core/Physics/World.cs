@@ -166,7 +166,7 @@ namespace MiniUnity.Physics3D
 
         static IEnumerable<GameObject> AllObjects()
         {
-            foreach (var g in Hier.SceneObjects(SceneData.Active)) yield return g;
+            foreach (var g in Hier.PlayingObjects()) yield return g;
         }
 
         /// <summary>Bring the physics scene in line with the GameObjects: added / removed / disabled components, moved transforms.</summary>

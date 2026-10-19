@@ -8,6 +8,15 @@ import json, os, shutil, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 MU = os.path.dirname(HERE)
 REPO = os.path.dirname(MU)
+DATA = os.path.join(HERE, "data")   # ProjectSettings + a few assets: the selftest needs no host project
+
+
+def pkg_source(name, version):
+    """Package sources: setup.sh's .cache/packages, else a host project's Library/PackageCache (None when neither has it)."""
+    c = os.path.join(MU, ".cache/packages", name)
+    if os.path.isdir(c): return c
+    c = os.path.join(REPO, "Library/PackageCache", f"{name}@{version}")
+    return c if os.path.isdir(c) else None
 DLL = os.path.join(MU, "Engine/bin/Release/net8.0/MiniUnity.dll")
 DOTNET = os.path.join(MU, ".cache/dotnet/dotnet") if os.path.exists(os.path.join(MU, ".cache/dotnet/dotnet")) else "dotnet"
 
@@ -18,7 +27,7 @@ def check(cond, msg):
     if not cond: fails += 1
 
 def copy(rel, proj):
-    src, dst = os.path.join(REPO, rel), os.path.join(proj, rel)
+    src, dst = os.path.join(DATA, rel), os.path.join(proj, rel)
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if os.path.isdir(src): shutil.copytree(src, dst)
     else: shutil.copy2(src, dst)
@@ -31,7 +40,7 @@ def main():
         copy(rel, proj)
     for folder in ["Assets/VideoRecreate", "Assets/VideoRecreate/Prefabs", "Assets/VideoRecreate/Art", "Assets/VideoRecreate/Art/Generated",
                    "Assets/VideoRecreate/Scripts", "Assets/VideoRecreate/Scripts/Components"]:
-        shutil.copy2(os.path.join(REPO, folder + ".meta"), os.path.join(proj, folder + ".meta"))
+        shutil.copy2(os.path.join(DATA, folder + ".meta"), os.path.join(proj, folder + ".meta"))
     env = dict(os.environ, MINIUNITY_SCRIPTDIRS=os.environ.get("MINIUNITY_SCRIPTDIRS", ""))
 
     def ua(*args, expect_ok=True):
@@ -155,7 +164,7 @@ def main():
         print("Addressables (fetch package sources → real script GUIDs)")
         p2 = tempfile.mkdtemp(prefix="ua_addr_")
         os.makedirs(os.path.join(p2, "Packages")); os.makedirs(os.path.join(p2, "Assets/Art"))
-        shutil.copytree(os.path.join(REPO, "ProjectSettings"), os.path.join(p2, "ProjectSettings"))
+        shutil.copytree(os.path.join(DATA, "ProjectSettings"), os.path.join(p2, "ProjectSettings"))
         json.dump({"dependencies": {"com.unity.addressables": "1.22.3"}}, open(os.path.join(p2, "Packages/manifest.json"), "w"))
         def ua2(*args, expect_ok=True):
             q = subprocess.run([DOTNET, DLL, "ua", p2, *args], capture_output=True, text=True, env=env)
@@ -194,13 +203,13 @@ def main():
         r = ua2("addr.group.remove", "Heroes"); check(r["ok"] and all(g["name"] != "Heroes" for g in ua2("addr.info")["groups"]), "addr.group.remove")
         shutil.rmtree(p2)
 
-        version = open(os.path.join(REPO, "ProjectSettings/ProjectVersion.txt")).read().split("m_EditorVersion: ")[1].split()[0]
+        version = open(os.path.join(DATA, "ProjectSettings/ProjectVersion.txt")).read().split("m_EditorVersion: ")[1].split()[0]
         editor = os.environ.get("UNITY_EDITOR") or next((c for c in [os.path.join(MU, ".cache/unity", version, "Editor"), os.path.expanduser(f"~/Unity/Hub/Editor/{version}/Editor"), "/opt/unity/Editor"]
                                                          if os.path.isdir(os.path.join(c, "Data/Managed"))), "/opt/unity/Editor")
         if os.path.isdir(os.path.join(editor, "Data/Managed")):
             print("Input System package (native backend fed by --input)")
             p4 = tempfile.mkdtemp(prefix="ua_input_")
-            shutil.copytree(os.path.join(REPO, "ProjectSettings"), os.path.join(p4, "ProjectSettings"))
+            shutil.copytree(os.path.join(DATA, "ProjectSettings"), os.path.join(p4, "ProjectSettings"))
             ps = os.path.join(p4, "ProjectSettings/ProjectSettings.asset")
             open(ps, "w").write(open(ps).read().replace("activeInputHandler: 0", "activeInputHandler: 2").replace("activeInputHandler: 1", "activeInputHandler: 2"))
             os.makedirs(os.path.join(p4, "Packages")); os.makedirs(os.path.join(p4, "Assets/Scripts"))
@@ -264,18 +273,18 @@ public class Probe : MonoBehaviour
             check(not ua4("play", "Assets/Main.unity", "--frames", "2", "--input", "pad.nope@1", expect_ok=False).get("ok"), "unknown gamepad control is an error")
             shutil.rmtree(p4)
 
-    version = open(os.path.join(REPO, "ProjectSettings/ProjectVersion.txt")).read().split("m_EditorVersion: ")[1].split()[0]
+    version = open(os.path.join(DATA, "ProjectSettings/ProjectVersion.txt")).read().split("m_EditorVersion: ")[1].split()[0]
     editor = os.environ.get("UNITY_EDITOR") or next((c for c in [os.path.join(MU, ".cache/unity", version, "Editor"), os.path.expanduser(f"~/Unity/Hub/Editor/{version}/Editor"), "/opt/unity/Editor"]
                                                      if os.path.isdir(os.path.join(c, "Data/Managed"))), "/opt/unity/Editor")
     cache_pkgs = ["com.unity.test-framework@1.1.33", "com.unity.ext.nunit@1.0.6"]
-    if os.path.isdir(os.path.join(editor, "Data/Managed")) and not all(os.path.isdir(os.path.join(REPO, "Library/PackageCache", pk)) for pk in cache_pkgs):
-        check(False, "compile/test/play section needs Library/PackageCache (open the project in Unity once, or run: MiniUnity/ua.sh pkg.resolve --fetch)")
+    if os.path.isdir(os.path.join(editor, "Data/Managed")) and not all(pkg_source(*pk.split("@")) for pk in cache_pkgs):
+        check(False, "compile/test/play section needs the test framework sources (run setup.sh: it fetches them into .cache/packages)")
     elif os.path.isdir(os.path.join(editor, "Data/Managed")):
         print("compile, tests, play, logs (Unity Editor reference assemblies)")
         p3 = tempfile.mkdtemp(prefix="ua_rt_")
-        shutil.copytree(os.path.join(REPO, "ProjectSettings"), os.path.join(p3, "ProjectSettings"))
+        shutil.copytree(os.path.join(DATA, "ProjectSettings"), os.path.join(p3, "ProjectSettings"))
         for pk in cache_pkgs:
-            shutil.copytree(os.path.join(REPO, "Library/PackageCache", pk), os.path.join(p3, "Library/PackageCache", pk))
+            shutil.copytree(pkg_source(*pk.split("@")), os.path.join(p3, "Library/PackageCache", pk))
         def w(rel, text):
             os.makedirs(os.path.dirname(os.path.join(p3, rel)), exist_ok=True); open(os.path.join(p3, rel), "w").write(text)
         w("Packages/manifest.json", '{"dependencies": {"com.unity.test-framework": "1.1.33"}}')

@@ -62,10 +62,11 @@ namespace MiniUnity
             LitMotion.MotionRunner.Reset();
             UnityEngine.UIElements.UIElementsRuntimeUtility.Reset(); WorldRenderer.ClearSubmitted(); QualitySettings.ResetColorSpace(); UnityEngine.Cursor.Reset();
             UnityEngineInternal.Input.NativeInputSystem.Reset();
+            SceneLoader.Reset();
         }
 
         // ------------------------------------------------------------------ objects
-        public static IEnumerable<GameObject> SceneObjects() => Hier.SceneObjects(SceneData.Active);
+        public static IEnumerable<GameObject> SceneObjects() => Hier.PlayingObjects();
 
         /// <summary>Enabled behaviours on active objects, in hierarchy order (a new list: callers run user code over it).</summary>
         internal static List<MonoBehaviour> Active()
@@ -127,6 +128,26 @@ namespace MiniUnity
             foreach (var d in Directors()) if (d.playOnAwake && d.playableAsset != null) { d.time = d.initialTime; d.Play(); }
         }
 
+        /// <summary>A scene loaded during play (SceneManager.LoadScene): Awake then OnEnable over its objects, play-on-awake
+        /// audio and timelines, as Begin does for the first scene.</summary>
+        public static void AwakeScene(SceneData scene)
+        {
+            var objs = Hier.SceneObjects(scene).ToList();
+            foreach (var g in objs)
+                foreach (var c in g.m_Components.ToList())
+                    if (c is MonoBehaviour mb && !mb.m_Destroyed && g.activeInHierarchy && !mb.m_Awoken) { mb.m_Awoken = true; Call(mb, "Awake"); }
+            foreach (var g in objs)
+            {
+                if (g.m_Destroyed || !g.activeInHierarchy) continue;
+                foreach (var c in g.m_Components.ToList()) if (c is MonoBehaviour mb && !mb.m_Destroyed && mb.m_Enabled) Call(mb, "OnEnable");
+            }
+            Audio.AudioSystem.CheckPlayOnAwake();
+            foreach (var g in objs)
+                if (!g.m_Destroyed && g.activeInHierarchy)
+                    foreach (var c in g.m_Components)
+                        if (c is UnityEngine.Playables.PlayableDirector d && !d.m_Destroyed && d.enabled && d.playOnAwake && d.playableAsset != null) { d.time = d.initialTime; d.Play(); }
+        }
+
         static IEnumerable<UnityEngine.Playables.PlayableDirector> Directors()
         {
             foreach (var g in SceneObjects().ToList())
@@ -146,6 +167,7 @@ namespace MiniUnity
             UnscaledTime += FrameDelta;
             Time += DeltaTime;
             UnityEngine.LowLevel.PlayerLoop.RunPhase(typeof(UnityEngine.PlayerLoop.Initialization));
+            SceneLoader.Process();   // SceneManager.LoadScene* queued in earlier frames: Awake / OnEnable now, Start below
             InputSim.BeginFrame(Frame, DeltaTime);   // EarlyUpdate: device state and virtual axes for this frame
             UnityEngineInternal.Input.NativeInputSystem.Tick(UnityEngineInternal.Input.NativeInputUpdateType.Dynamic);   // Input System package
             UnityEngine.LowLevel.PlayerLoop.RunPhase(typeof(UnityEngine.PlayerLoop.EarlyUpdate));

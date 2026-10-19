@@ -130,6 +130,12 @@ namespace UnityEngine
         public static double fixedTimeAsDouble => P ? MiniUnity.Play.FixedTime : 0;
         public static bool inFixedTimeStep => MiniUnity.Play.InFixed;
         public static float timeSinceLevelLoad => time;
+        public static double timeSinceLevelLoadAsDouble => timeAsDouble;
+        public static int renderedFrameCount => frameCount;
+        public static float fixedUnscaledTime => fixedTime;
+        public static double fixedUnscaledTimeAsDouble => fixedTimeAsDouble;
+        public static float captureDeltaTime { get => 0; set { } }
+        public static float maximumParticleDeltaTime { get => 0.03f; set { } }
     }
 
     public sealed partial class Resources
@@ -169,7 +175,7 @@ namespace UnityEngine
             return res.ToArray();
         }
         public static T GetBuiltinResource<T>(string path) where T : Object => (T)GetBuiltinResource(typeof(T), path);
-        public static Object GetBuiltinResource(Type type, string path) => type == typeof(Font) ? new Font("LegacyRuntime") : null;
+        public static Object GetBuiltinResource(Type type, string path) => type == typeof(Font) ? MiniUnity.LegacyFontFace.Builtin : null;
         public static void UnloadAsset(Object assetToUnload) { }
         public static AsyncOperation UnloadUnusedAssets() => null;
         public static T[] FindObjectsOfTypeAll<T>() where T : Object => ObjectRegistry.All(typeof(T)).Cast<T>().ToArray();

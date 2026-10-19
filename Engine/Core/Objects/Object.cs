@@ -113,7 +113,7 @@ namespace UnityEngine
             if (!IsAlive(obj)) return;
             Lifecycle.Destroy(obj);
         }
-        public static void DontDestroyOnLoad(Object target) { }
+        public static void DontDestroyOnLoad(Object target) { if (MiniUnity.Play.IsPlaying) MiniUnity.SceneLoader.DontDestroyOnLoad(target); }
 
         // ---------------- Find ----------------
         public static T[] FindObjectsOfType<T>() where T : Object => FindObjectsOfType<T>(false);
@@ -180,9 +180,7 @@ namespace MiniUnity
         }
         public static IEnumerable<UnityEngine.Object> SceneObjects(Type t, bool includeInactive)
         {
-            var scene = SceneData.Active;
-            if (scene == null) yield break;
-            foreach (var root in scene.Roots.ToList())
+            foreach (var root in SceneData.Playing.SelectMany(s => s.Roots).ToList())
             {
                 foreach (var go in Hier.Walk(root))
                 {
@@ -236,6 +234,20 @@ namespace MiniUnity
                 while (stack.Count > 0) { var g = stack.Pop().gameObject; list.Add(g); Push(stack, g); }
             }
             sceneList = list; sceneListScene = s; sceneListVersion = Version;
+            return list;
+        }
+        static List<UnityEngine.GameObject> playingList;
+        static int playingVersion = -1, playingSetVersion = -1;
+        /// <summary>Every object of the scenes that play (SceneData.Playing): the active scene's list when it is the only one.</summary>
+        public static IReadOnlyList<UnityEngine.GameObject> PlayingObjects()
+        {
+            var scenes = SceneData.Playing;
+            if (scenes.Count == 0) return Array.Empty<UnityEngine.GameObject>();
+            if (scenes.Count == 1) return SceneObjects(scenes[0]);
+            if (playingList != null && playingVersion == Version && playingSetVersion == SceneData.SetVersion) return playingList;
+            var list = new List<UnityEngine.GameObject>();
+            foreach (var s in scenes) list.AddRange(SceneObjects(s));
+            playingList = list; playingVersion = Version; playingSetVersion = SceneData.SetVersion;
             return list;
         }
         public static string Path(UnityEngine.Transform t)

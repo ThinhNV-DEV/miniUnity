@@ -83,8 +83,13 @@ namespace MiniUnity
                     break;
                 }
                 case ".ttf": case ".otf":
-                    Add(12800000, new Font(Path.GetFileNameWithoutExtension(la.Path)), true);
+                {
+                    // TrueTypeFontImporter: dynamic font, default size 16 (the legacy Text renders it with LegacyFont.cs)
+                    var font = new Font(Path.GetFileNameWithoutExtension(la.Path));
+                    if (meta?["TrueTypeFontImporter"] is YMap fi) font.m_FontSize = Math.Max(1, Serializer.Int(fi["fontSize"], 16));
+                    Add(12800000, font, true);
                     break;
+                }
                 case ".wav": case ".mp3": case ".ogg": case ".aif": case ".aiff":
                 {
                     var clip = new AudioClip();
@@ -110,6 +115,8 @@ namespace MiniUnity
                 default:
                     // models and other assets only Unity imports: its import result in Library/Artifacts, when there is one
                     if (ImportArtifacts.DocsFor(la.Path) is { Count: > 0 } docs) { AssetLoader.LoadDocsInto(la, docs); break; }
+                    // no import result: read the model file itself
+                    if (ext == ".fbx" && FbxImporter.Import(la, meta, (fid, o, main) => Add(fid, o, main))) break;
                     if (AssetLoader.Verbose) Console.Error.WriteLine("[import] unsupported " + la.Path);
                     break;
             }
@@ -123,6 +130,8 @@ namespace MiniUnity
                 var hdr = new byte[24];
                 if (f.Read(hdr, 0, 24) == 24 && hdr[0] == 0x89 && hdr[1] == 'P')
                     return ((hdr[16] << 24) | (hdr[17] << 16) | (hdr[18] << 8) | hdr[19], (hdr[20] << 24) | (hdr[21] << 16) | (hdr[22] << 8) | hdr[23]);
+                f.Close();
+                return ImageDecoders.Size(File.ReadAllBytes(path), Path.GetExtension(path).ToLowerInvariant());
             }
             catch { }
             return (0, 0);

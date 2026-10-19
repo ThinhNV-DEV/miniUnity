@@ -65,7 +65,7 @@ namespace UnityEngine.TextCore.LowLevel
         public static bool TryGetGlyphIndex(uint unicode, out uint glyphIndex) { glyphIndex = GetGlyphIndex(unicode); return glyphIndex != 0; }
 
         // ------------------------------------------------------------------ outline + metrics
-        sealed class Outline
+        internal sealed class Outline
         {
             public List<(float x0, float y0, float x1, float y1)> segs = new();   // pixels (y up), flattened
             public long xMin, yMin, xMax, yMax;                                 // control box, 26.6
@@ -75,12 +75,14 @@ namespace UnityEngine.TextCore.LowLevel
 
         static long Fix(float v, float k) => (long)Math.Round(v * k * 64.0, MidpointRounding.AwayFromZero);
 
-        static Outline Load(uint glyph)
+        static Outline Load(uint glyph) => LoadOutline(s_Face, s_PointSize, glyph);
+        /// <summary>A glyph's outline at a pixel size (also used by the legacy uGUI font, LegacyFont.cs).</summary>
+        internal static Outline LoadOutline(TrueTypeFont face, float pointSize, uint glyph)
         {
             var o = new Outline();
-            float k = s_PointSize / (float)s_Face.UnitsPerEm;
-            o.adv = Fix(s_Face.AdvanceWidth(glyph), k);
-            var contours = s_Face.Contours(glyph);
+            float k = pointSize / face.UnitsPerEm;
+            o.adv = Fix(face.AdvanceWidth(glyph), k);
+            var contours = face.Contours(glyph);
             o.empty = contours.Count == 0;
             o.xMin = o.yMin = long.MaxValue; o.xMax = o.yMax = long.MinValue;
             foreach (var contour in contours)
@@ -127,7 +129,7 @@ namespace UnityEngine.TextCore.LowLevel
         }
 
         static GlyphMetrics Metrics(Outline o) => new GlyphMetrics((o.xMax - o.xMin) / 64f, (o.yMax - o.yMin) / 64f, o.xMin / 64f, o.yMax / 64f, o.adv / 64f);
-        static (int left, int bottom, int w, int h) Bitmap(Outline o)
+        internal static (int left, int bottom, int w, int h) Bitmap(Outline o)
         {
             if (o.empty) return (0, 0, 0, 0);
             int l = (int)Math.Floor(o.xMin / 64.0), r = (int)Math.Ceiling(o.xMax / 64.0), b = (int)Math.Floor(o.yMin / 64.0), t = (int)Math.Ceiling(o.yMax / 64.0);
@@ -235,7 +237,7 @@ namespace UnityEngine.TextCore.LowLevel
             tex.m_Version++;
         }
 
-        static float SignedDistance(Outline o, float px, float py)
+        internal static float SignedDistance(Outline o, float px, float py)
         {
             float best = float.MaxValue; int winding = 0;
             foreach (var (x0, y0, x1, y1) in o.segs)

@@ -295,17 +295,6 @@ namespace UnityEngine
         public static Sprite Create(Texture2D texture, Rect rect, Vector2 pivot, float pixelsPerUnit, uint extrude, SpriteMeshType meshType, Vector4 border) => new Sprite { m_Texture = texture, m_Rect = rect, m_Pivot = new Vector2(pivot.x * rect.width, pivot.y * rect.height), m_PPU = pixelsPerUnit, m_Border = border };
     }
 
-    public partial class Font
-    {
-        public Font() { }
-        public Font(string name) { m_Name = name; }
-        public Material material { get; set; }
-        public bool dynamic => true;
-        public int fontSize => 16;
-        public string[] fontNames { get; set; } = Array.Empty<string>();
-        public bool HasCharacter(char c) => true;
-    }
-
     public partial class TextAsset
     {
         internal string m_Text = ""; internal byte[] m_Bytes;

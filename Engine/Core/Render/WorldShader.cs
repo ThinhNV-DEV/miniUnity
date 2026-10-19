@@ -162,10 +162,15 @@ namespace MiniUnity
             public override void Prepare(ShaderInputs m)
             {
                 int mode = (int)m.Float("_Mode", 0);
+                // URP-style materials (Lit / Simple Lit and custom shaders drawn as Standard) name albedo, tint and smoothness
+                // _BaseMap, _BaseColor and _Smoothness
+                bool urp = m.Texture("_MainTex") == null && m.Texture("_BaseMap") != null;
+                bool baseColor = urp || (m.material != null && !m.material.HasProperty("_Color") && m.material.HasProperty("_BaseColor"));
                 m.state = new S
                 {
-                    albedo = m.Sampler("_MainTex"), bump = m.Sampler("_BumpMap"), st = m.ST("_MainTex"), color = m.ColorLinear("_Color", Color.white),
-                    smooth = m.Float("_Glossiness", .5f), metal = m.Float("_Metallic", 0), cutoff = m.Float("_Cutoff", .5f), bumpScale = m.Float("_BumpScale", 1),
+                    albedo = m.Sampler(urp ? "_BaseMap" : "_MainTex"), bump = m.Sampler("_BumpMap"), st = m.ST(urp ? "_BaseMap" : "_MainTex"),
+                    color = baseColor ? m.ColorLinear("_BaseColor", Color.white) : m.ColorLinear("_Color", Color.white),
+                    smooth = urp ? m.Float("_Smoothness", .5f) : m.Float("_Glossiness", .5f), metal = m.Float("_Metallic", 0), cutoff = m.Float("_Cutoff", .5f), bumpScale = m.Float("_BumpScale", 1),
                     emission = m.Keyword("_EMISSION") ? m.ColorLinear("_EmissionColor", Color.black) : Color.black, cutout = mode == 1, fade = mode >= 2,
                 };
             }

@@ -144,6 +144,7 @@ public class AnimatorTests
         var sr = child.AddComponent<SpriteRenderer>();
         var a = go.AddComponent<Animator>();
         a.runtimeAnimatorController = Load<RuntimeAnimatorController>("Assets/RoboHero/Animations/player model.controller");
+        if (a.runtimeAnimatorController == null) Assert.Ignore("RoboHero sample (com.unity.2d.pixel-perfect) not available");
         yield return null;
         Assert.IsTrue(a.GetCurrentAnimatorStateInfo(0).IsName("player_idle"), "default state of the sample controller");
         a.SetBool("moving", true);

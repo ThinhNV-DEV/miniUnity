@@ -593,13 +593,13 @@ namespace MiniUnity
         /// <summary>UI/Default (2022.3 builtin source).</summary>
         sealed class UIDefault : Shading
         {
-            readonly Color tint; readonly Vector4 add; readonly bool alphaClip;
+            readonly Color tint; readonly Vector4 add; readonly bool alphaClip, alpha8;
             Vector4 cr;
             public UIDefault(Material m, Texture t)
             {
                 tint = MatColor(m, "_Color", Color.white);
                 tex = TextureData.Sampler(t ?? Texture2D.whiteTexture);
-                bool alpha8 = t is Texture2D t2 && t2.format == TextureFormat.Alpha8;
+                alpha8 = t is Texture2D t2 && t2.format == TextureFormat.Alpha8;
                 add = alpha8 ? new Vector4(1, 1, 1, 0) : Vector4.zero;
                 alphaClip = m != null && (m.IsKeywordEnabled("UNITY_UI_ALPHACLIP") || F(m, "_UseUIAlphaClip", 0) > 0.5f);
             }
@@ -618,6 +618,7 @@ namespace MiniUnity
             {
                 float ca = MathF.Round(v[3] * 255f) / 255f;
                 tex.Sample(v[4], v[5], out float tr, out float tg, out float tb, out float ta);
+                if (alpha8) tr = tg = tb = 0;   // an Alpha8 texture samples as (0, 0, 0, a); _TextureSampleAdd makes it white
                 r = v[0] * (tr + add.x); g = v[1] * (tg + add.y); b = v[2] * (tb + add.z); a = ca * (ta + add.w);
                 if (clip)
                 {

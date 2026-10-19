@@ -265,14 +265,15 @@ namespace MiniUnity.Agent
         }
 
         /// <summary>Load a scene into a new active SceneData (live objects, scene-owned: no asset identity).</summary>
-        public static SceneData LoadScene(string rel)
+        public static SceneData LoadScene(string rel, SceneData into = null)
         {
             var f = UFile.Load(rel);
             var instances = new List<FlatInstance>();
             var docs = Flatten(f, instances);
             var la = AssetLoader.LoadDocs(rel + "#play", AssetIndex.GuidOf(rel) ?? "0", docs);
             Reconnect(la, instances);
-            var scene = new SceneData { Path = rel, Name = Path.GetFileNameWithoutExtension(rel) };
+            var scene = into ?? new SceneData { Path = rel, Name = Path.GetFileNameWithoutExtension(rel) };
+            scene.Loaded = true;
             SceneData.Active = scene;
             var gos = la.Objects.Values.OfType<UnityEngine.GameObject>().ToList();
             foreach (var o in la.Objects.Values) { o.m_Asset = null; if (o is UnityEngine.GameObject go) { go.m_InPrefabAsset = false; go.m_Scene = scene; } }

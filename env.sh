@@ -1,8 +1,11 @@
 # Sourced by the MiniUnity scripts. All paths are relative to this folder.
 MU_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export MU_HOME
-# Unity project (folder that contains Assets/ and Packages/); default: the repo this folder lives in
-export UNITY_PROJECT="$(cd "${UNITY_PROJECT:-$MU_HOME/..}" && pwd)"
+# Unity project (folder that contains Assets/ and Packages/); default: the folder MiniUnity lives in when that is a Unity
+# project, otherwise none (standalone MiniUnity: pass the project to ua.sh / mcp.sh or set UNITY_PROJECT)
+if [ -n "${UNITY_PROJECT:-}" ]; then export UNITY_PROJECT="$(cd "$UNITY_PROJECT" && pwd)"
+elif [ -d "$MU_HOME/../Assets" ] && [ -d "$MU_HOME/../ProjectSettings" ]; then export UNITY_PROJECT="$(cd "$MU_HOME/.." && pwd)"
+else export UNITY_PROJECT=""; fi
 export MU_CACHE="$MU_HOME/.cache"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 # prefer a local .NET 8 SDK installed by setup.sh, otherwise the one on PATH
@@ -14,7 +17,7 @@ mu() { dotnet "$MU_DLL" "$@"; }
 # Prints the first engine source newer than the build (empty when the build is current or missing). Video / game sources the
 # csproj also compiles are not checked: the `ua` / `mcp` commands do not depend on them.
 mu_stale() { [ -f "$MU_DLL" ] && find "$MU_HOME/Engine/Core" "$MU_HOME/Engine/Shims" "$MU_HOME/Engine/MiniUnity.csproj" "$MU_HOME/config" \
-               -newer "$MU_DLL" \( -name '*.cs' -o -name '*.csproj' -o -name '*.cfg' -o -name '*.txt' \) -print -quit 2>/dev/null; }
+               -newer "$MU_DLL" ! -name defaults.cfg \( -name '*.cs' -o -name '*.csproj' -o -name '*.cfg' -o -name '*.txt' \) -print -quit 2>/dev/null; }
 # Build MiniUnity when there is no build, the engine sources changed since the last one, or NOCOMPILE=0; MU_NOREBUILD=1 never
 # rebuilds an existing build. Build output goes to stderr so that stdout stays JSON.
 mu_ensure_build() {

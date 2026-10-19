@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Extract member names declared in hand-written partial classes → stub-skip config lines.
 import re,sys,os,glob
 root=sys.argv[1]

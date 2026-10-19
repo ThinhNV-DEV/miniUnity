@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Usage: python3 audioassets.py <unity project>  — writes Assets/AudioTest/tone440.wav (1 s, 440 Hz, 16-bit mono) used by AudioTests.cs.
 import math, os, struct, sys
 d = os.path.join(sys.argv[1], "Assets/AudioTest"); os.makedirs(d, exist_ok=True)

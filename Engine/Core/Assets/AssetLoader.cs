@@ -27,9 +27,66 @@ namespace MiniUnity
                 guidToPath[guid] = rel; pathToGuid[rel] = guid;
             }
         }
-        public static string Abs(string assetPath) => Path.Combine(Root, assetPath);
-        public static string GuidOf(string path) { Ensure(); return pathToGuid.TryGetValue(Norm(path), out var g) ? g : null; }
-        public static string PathOf(string guid) { Ensure(); return guid != null && guidToPath.TryGetValue(guid, out var p) ? p : null; }
+        public static string Abs(string assetPath)
+        {
+            if (assetPath != null && assetPath.StartsWith("Packages/", StringComparison.Ordinal))
+            {
+                EnsurePackages();
+                int slash = assetPath.IndexOf('/', 9);
+                var name = slash < 0 ? assetPath.Substring(9) : assetPath.Substring(9, slash - 9);
+                if (packageDirs.TryGetValue(name, out var dir)) return slash < 0 ? dir : Path.Combine(dir, assetPath.Substring(slash + 1));
+            }
+            return Path.Combine(Root, assetPath);
+        }
+        public static string GuidOf(string path)
+        {
+            Ensure();
+            var n = Norm(path);
+            if (pathToGuid.TryGetValue(n, out var g)) return g;
+            if (n != null && n.StartsWith("Packages/", StringComparison.Ordinal)) { EnsurePackages(); if (pkgPathToGuid.TryGetValue(n, out g)) return g; }
+            return null;
+        }
+        public static string PathOf(string guid)
+        {
+            Ensure();
+            if (guid == null) return null;
+            if (guidToPath.TryGetValue(guid, out var p)) return p;
+            EnsurePackages();
+            return pkgGuidToPath.TryGetValue(guid, out p) ? p : null;
+        }
+
+        // package assets ("Packages/<name>/…", as Unity names them): embedded packages in Packages/ and Library/PackageCache,
+        // indexed on the first lookup that misses Assets/
+        static Dictionary<string, string> pkgGuidToPath, pkgPathToGuid, packageDirs;
+        static string pkgRoot;
+        static void EnsurePackages()
+        {
+            if (pkgGuidToPath != null && pkgRoot == Root) return;
+            pkgRoot = Root; pkgGuidToPath = new(); pkgPathToGuid = new(); packageDirs = new();
+            var dirs = new List<string>();
+            foreach (var r in new[] { "Packages", "Library/PackageCache" })
+                if (Directory.Exists(Path.Combine(Root, r))) dirs.AddRange(Directory.GetDirectories(Path.Combine(Root, r)));
+            foreach (var dir in dirs)
+            {
+                string name = Path.GetFileName(dir);
+                int at = name.IndexOf('@');
+                if (at > 0) name = name.Substring(0, at);
+                var pj = Path.Combine(dir, "package.json");
+                if (File.Exists(pj))
+                    try { using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(pj)); if (doc.RootElement.TryGetProperty("name", out var n)) name = n.GetString(); }
+                    catch (Exception) { }
+                if (packageDirs.ContainsKey(name)) continue;   // an embedded package (Packages/) wins over the cache
+                packageDirs[name] = dir;
+                foreach (var meta in Directory.EnumerateFiles(dir, "*.meta", SearchOption.AllDirectories))
+                {
+                    string guid = null;
+                    foreach (var l in File.ReadLines(meta)) { if (l.StartsWith("guid: ")) { guid = l.Substring(6).Trim(); break; } }
+                    if (guid == null) continue;
+                    var rel = "Packages/" + name + "/" + Path.GetRelativePath(dir, meta[..^5]).Replace('\\', '/');
+                    pkgGuidToPath.TryAdd(guid, rel); pkgPathToGuid[rel] = guid;
+                }
+            }
+        }
         public static IEnumerable<string> AllPaths() { Ensure(); return pathToGuid.Keys.ToList(); }
         public static string Norm(string p) => p?.Replace('\\', '/').TrimEnd('/');
 

@@ -120,7 +120,7 @@ namespace MiniUnity.Agent
                 var (width, height) = Ua.Size(a.O("size") ?? "1920x1080", "--size");
                 Play.FrameDelta = 1f / fps;
                 if (a.O("input") is string input) Play.Input.Parse(input);
-                RuntimeHost.LoadScene(scene);
+                RuntimeHost.LoadScene(scene).MakeOnly();
                 int frames = a.Has("seconds") ? (int)Math.Ceiling(Ua.Num(a.O("seconds"), "--seconds") / Play.FrameDelta) : a.I("frames", 60);
                 var sw = Stopwatch.StartNew();
                 MiniUnity.Screen.Width = width; MiniUnity.Screen.Height = height;   // before Awake/Start: games read Screen.width there
@@ -384,7 +384,7 @@ namespace MiniUnity.Agent
             // fresh world for every test: empty active scene; PlayMode tests run inside the player loop
             Play.Reset();
             if (!editMode && s_TestInput != null) Play.Input.Parse(s_TestInput);
-            SceneData.Active = new SceneData { Name = "TestScene" };
+            new SceneData { Name = "TestScene" }.MakeOnly();
             if (!editMode) { Play.IsPlaying = true; Play.Begin(); }
             var scope = LogScopeBegin();
             (string kind, string message, Exception ex)? err = null;

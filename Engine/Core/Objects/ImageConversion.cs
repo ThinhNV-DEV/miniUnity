@@ -44,7 +44,19 @@ namespace UnityEngine
         public static byte[] EncodeToJPG(this Texture2D tex) => EncodeToPNG(tex);
         public static byte[] EncodeToJPG(this Texture2D tex, int quality) => EncodeToPNG(tex);
         public static bool LoadImage(this Texture2D tex, byte[] data) => LoadImage(tex, data, false);
-        public static bool LoadImage(this Texture2D tex, byte[] data, bool markNonReadable) => throw new NotImplementedException("ImageConversion.LoadImage (PNG decode)");
+        /// <summary>PNG or JPEG bytes into the texture (resized to the image; PNG → RGBA32, JPEG → RGB24, as Unity).</summary>
+        public static bool LoadImage(this Texture2D tex, byte[] data, bool markNonReadable)
+        {
+            if (tex == null || data == null) return false;
+            int w, h; byte[] rgba; TextureFormat fmt;
+            if (Png.TryDecode(data, out w, out h, out rgba)) fmt = TextureFormat.RGBA32;
+            else if (ImageDecoders.TryDecode(data, ".jpg", out w, out h, out rgba)) fmt = TextureFormat.RGB24;
+            else return false;
+            tex.Reinitialize(w, h, fmt, false);
+            for (int i = 0; i < w * h; i++) tex.m_Pixels[i] = new Color32(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3]);
+            tex.m_Version++;
+            return true;
+        }
 
         static void BE(byte[] b, int o, int v) { b[o] = (byte)(v >> 24); b[o + 1] = (byte)(v >> 16); b[o + 2] = (byte)(v >> 8); b[o + 3] = (byte)v; }
         static void Chunk(Stream s, string type, byte[] data)

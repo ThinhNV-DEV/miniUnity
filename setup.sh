@@ -6,18 +6,41 @@
 #   ./setup.sh --download-unity   Linux (container, CI): download the Unity Editor subset MiniUnity reads (~4 GB stream, ~1.6 GB kept)
 #                                 into .cache/unity/<version>/Editor when no installed Editor of the project's version is found
 #   ./setup.sh --check            report what is installed / missing / stale, change nothing
+#   ./setup.sh --unity-version 2022.3.62f2 [--unity-revision 7670c08855a9]
+#                                 Editor version to use (default: the project's ProjectVersion.txt, else config/defaults.cfg);
+#                                 the revision is only needed by --download-unity
 #   UNITY_EDITOR=/path/to/Unity/Editor  (folder containing Data/Managed) — auto-detected if unset
-#   UNITY_PROJECT=..                     — the Unity project to build (default: parent folder)
+#   UNITY_PROJECT=..                     — the Unity project (default: the parent folder when it is one; none = standalone:
+#                                          package versions then come from config/defaults.cfg)
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "$MU_HOME"
 mkdir -p "$MU_CACHE"
 step() { echo; echo "== $*"; }
-DOWNLOAD_UNITY=0; CHECK=0
-for a in "$@"; do case "$a" in --download-unity) DOWNLOAD_UNITY=1;; --check) CHECK=1;; *) echo "unknown option $a"; exit 2;; esac; done
-
-VERSION=$(sed -n 's/^m_EditorVersion: //p' "$UNITY_PROJECT/ProjectSettings/ProjectVersion.txt")
-REVISION=$(sed -n 's/^m_EditorVersionWithRevision: .*(\(.*\))/\1/p' "$UNITY_PROJECT/ProjectSettings/ProjectVersion.txt")
+DOWNLOAD_UNITY=0; CHECK=0; VERSION="${UNITY_VERSION:-}"; REVISION="${UNITY_REVISION:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --download-unity) DOWNLOAD_UNITY=1;;
+    --check) CHECK=1;;
+    --unity-version) VERSION="${2:?--unity-version needs a version, e.g. 2022.3.62f2}"; shift;;
+    --unity-version=*) VERSION="${1#*=}";;
+    --unity-revision) REVISION="${2:?--unity-revision needs the changeset, e.g. 7670c08855a9}"; shift;;
+    --unity-revision=*) REVISION="${1#*=}";;
+    *) echo "unknown option $1"; exit 2;;
+  esac
+  shift
+done
+# "2022.3.62f2 (7670c08855a9)" as one argument works too
+if [[ "$VERSION" == *"("*")"* ]]; then REVISION="${VERSION#*(}"; REVISION="${REVISION%)*}"; VERSION="${VERSION%% *}"; fi
+DEFAULTS="$MU_HOME/config/defaults.cfg"
+default_of() { awk -v k="$1" '$1 == k { print $2; exit }' "$DEFAULTS"; }
+PV="${UNITY_PROJECT:+$UNITY_PROJECT/ProjectSettings/ProjectVersion.txt}"
+if [ -z "$VERSION" ] && [ -n "$PV" ] && [ -f "$PV" ]; then
+  VERSION=$(sed -n 's/^m_EditorVersion: //p' "$PV")
+  REVISION=${REVISION:-$(sed -n 's/^m_EditorVersionWithRevision: .*(\(.*\))/\1/p' "$PV")}
+fi
+if [ -z "$VERSION" ]; then VERSION=$(default_of unity); REVISION=${REVISION:-$(awk '$1 == "unity" { print $3; exit }' "$DEFAULTS")}; fi
+if [ -z "$REVISION" ] && [ "$VERSION" = "$(default_of unity)" ]; then REVISION=$(awk '$1 == "unity" { print $3; exit }' "$DEFAULTS"); fi
 find_editor() {
   [ -n "${UNITY_EDITOR:-}" ] && return 0
   for c in "$MU_CACHE/unity/$VERSION/Editor" "$HOME/Unity/Hub/Editor/$VERSION/Editor" "/opt/unity/Editor" "/Applications/Unity/Hub/Editor/$VERSION/Unity.app/Contents" \
@@ -30,16 +53,18 @@ find_editor() {
 
 if [ "$CHECK" = 1 ]; then
   ok() { printf "  %-34s %s\n" "$1" "$2"; }
-  echo "MiniUnity setup check (project $UNITY_PROJECT, Unity $VERSION)"
+  echo "MiniUnity setup check (project ${UNITY_PROJECT:-none: standalone}, Unity $VERSION)"
   if command -v dotnet >/dev/null && dotnet --list-sdks | grep -q '^8\.'; then ok ".NET 8 SDK" "$(dotnet --version)"; else ok ".NET 8 SDK" "MISSING (setup.sh installs it)"; fi
   if find_editor; then ok "Unity Editor" "$UNITY_EDITOR"; else ok "Unity Editor" "MISSING ($VERSION; install it, set UNITY_EDITOR, or setup.sh --download-unity)"; fi
-  for p in com.unity.timeline com.unity.textmeshpro com.unity.cinemachine com.unity.ugui litmotion; do
+  for p in com.unity.timeline com.unity.textmeshpro com.unity.cinemachine com.unity.ugui com.unity.test-framework com.unity.ext.nunit com.unity.postprocessing litmotion; do
     [ -d "$MU_CACHE/packages/$p" ] && ok "package $p" "$(cat "$MU_CACHE/packages/$p/.version" 2>/dev/null || echo present)" || ok "package $p" "MISSING"
   done
   for d in Engine/Generated Engine/Decompiled; do [ -d "$d" ] && ok "$d" "$(find "$d" -name '*.cs' | wc -l) files" || ok "$d" "MISSING"; done
   if [ ! -f "$MU_DLL" ]; then ok "engine build" "MISSING"; elif s=$(mu_stale) && [ -n "$s" ]; then ok "engine build" "STALE ($s changed)"; else ok "engine build" "current"; fi
   for t in python3 ffmpeg git; do command -v $t >/dev/null && ok "$t" "$(command -v $t)" || ok "$t" "missing$([ $t = ffmpeg ] && echo ' (record, Ogg / MP3)')"; done
-  [ -d "$UNITY_PROJECT/Library/PackageCache" ] && ok "Library/PackageCache" "$(ls "$UNITY_PROJECT/Library/PackageCache" | wc -l) packages" || ok "Library/PackageCache" "missing (ua pkg.resolve --fetch; needed by compile / test)"
+  if [ -z "$UNITY_PROJECT" ]; then ok "Unity project" "none (standalone; ua.sh / mcp.sh take a project path)"
+  elif [ -d "$UNITY_PROJECT/Library/PackageCache" ]; then ok "Library/PackageCache" "$(ls "$UNITY_PROJECT/Library/PackageCache" | wc -l) packages"
+  else ok "Library/PackageCache" "missing (ua pkg.resolve --fetch; needed by compile / test)"; fi
   exit 0
 fi
 
@@ -57,7 +82,7 @@ dotnet --version
 step "Unity Editor"
 if ! find_editor && [ "$DOWNLOAD_UNITY" = 1 ]; then
   [ "$(uname -s)" = Linux ] || { echo "--download-unity downloads the Linux Editor; install Unity $VERSION with Unity Hub instead"; exit 1; }
-  [ -n "$REVISION" ] || { echo "no revision in ProjectVersion.txt (m_EditorVersionWithRevision)"; exit 1; }
+  [ -n "$REVISION" ] || { echo "the download needs the Editor revision: --unity-revision <changeset> (shown in Unity Hub / the release notes)"; exit 1; }
   dest="$MU_CACHE/unity/$VERSION"; rm -rf "$dest"; mkdir -p "$dest"
   url="https://download.unity3d.com/download_unity/$REVISION/LinuxEditorInstaller/Unity-$VERSION.tar.xz"
   echo "downloading the Editor subset from $url (no license needed: only managed DLLs, reference assemblies and built-in packages are read)"
@@ -71,11 +96,17 @@ DATA="$UNITY_EDITOR/Data"; [ -d "$DATA" ] || DATA="$UNITY_EDITOR"
 MANAGED="$DATA/Managed/UnityEngine"
 echo "using $UNITY_EDITOR (project wants $VERSION)"
 
-# ---------------------------------------------------------------- 3. package sources (versions from packages-lock.json)
+# ---------------------------------------------------------------- 3. package sources (versions from the project's
+# packages-lock.json, else config/defaults.cfg); the test framework, NUnit and PostProcessing are fetched for the fixtures / selftest
 step "package sources"
 PKG="$MU_CACHE/packages"; mkdir -p "$PKG"
-lockver() { python3 -c "import json,sys;print(json.load(open('$UNITY_PROJECT/Packages/packages-lock.json'))['dependencies'][sys.argv[1]]['version'])" "$1"; }
-for p in com.unity.timeline com.unity.textmeshpro com.unity.cinemachine; do
+LOCK="${UNITY_PROJECT:+$UNITY_PROJECT/Packages/packages-lock.json}"
+lockver() {
+  local v=""
+  [ -n "$LOCK" ] && [ -f "$LOCK" ] && v=$(python3 -c "import json,sys;d=json.load(open(sys.argv[2]))['dependencies'];print(d.get(sys.argv[1],{}).get('version',''))" "$1" "$LOCK")
+  [[ -n "$v" && "$v" != http* ]] && echo "$v" || default_of "$1"
+}
+for p in com.unity.timeline com.unity.textmeshpro com.unity.cinemachine com.unity.test-framework com.unity.ext.nunit com.unity.postprocessing; do
   v=$(lockver $p)
   if [ "$(cat "$PKG/$p/.version" 2>/dev/null)" != "$v" ]; then
     echo "  $p@$v"
@@ -93,7 +124,9 @@ done
 # uGUI is a built-in package: take it from the Editor
 rm -rf "$PKG/com.unity.ugui"; cp -r "$DATA/Resources/PackageManager/BuiltInPackages/com.unity.ugui" "$PKG/com.unity.ugui"
 # LitMotion (git package): only Ease / EaseUtility are compiled, at the locked commit
-LMHASH=$(python3 -c "import json;print(json.load(open('$UNITY_PROJECT/Packages/packages-lock.json'))['dependencies']['com.annulusgames.lit-motion']['hash'])")
+LMHASH=""
+[ -n "$LOCK" ] && [ -f "$LOCK" ] && LMHASH=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['dependencies'].get('com.annulusgames.lit-motion',{}).get('hash',''))" "$LOCK")
+LMHASH=${LMHASH:-$(default_of litmotion)}
 mkdir -p "$PKG/litmotion"
 for f in Ease.cs EaseUtility.cs; do
   curl -sSLf "https://raw.githubusercontent.com/annulusgames/LitMotion/$LMHASH/src/LitMotion/Assets/LitMotion/Runtime/$f" -o "$PKG/litmotion/$f"

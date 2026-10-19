@@ -38,12 +38,25 @@ Dùng qua:
 - .NET 8 SDK (nếu chưa có, `setup.sh` tự cài vào `.cache/dotnet`).
 - Engine compile chung code video của repo này, gồm cả `Assets/Pixel Flow` và `Assets/Block Exit` (nằm sẵn trong repo); thiếu
   một trong các thư mục đó thì `setup.sh` dừng ở bước build.
-- `tests/ua_selftest.py` (phần compile / test / play) cần `Library/PackageCache` của repo: mở project bằng Unity một lần, hoặc
-  chạy `./ua.sh pkg.resolve --fetch`.
+- `tests/ua_selftest.py` và `tests/run_fixtures.py` không cần project nào: chúng mang ProjectSettings và asset riêng
+  (`tests/data/`) và lấy test framework / NUnit / Timeline từ `.cache/packages` mà `setup.sh` tải về.
 
 Trên Linux không có Unity Hub (container, CI): `./setup.sh --download-unity` tải bản cài Editor đúng phiên bản (revision lấy từ
-`ProjectVersion.txt`) dạng stream và chỉ giữ phần MiniUnity đọc (~1.6 GB trong `.cache/unity/<version>/Editor`, không cần license);
+`ProjectVersion.txt`, `--unity-revision` hoặc `config/defaults.cfg`) dạng stream và chỉ giữ phần MiniUnity đọc (~1.6 GB trong `.cache/unity/<version>/Editor`, không cần license);
 engine tự tìm ở đó. `./setup.sh --check` liệt kê những gì đã có / còn thiếu / đã cũ mà không sửa gì.
+
+## Dùng độc lập (không nằm trong project Unity)
+
+MiniUnity không cần nằm trong project: nếu thư mục cha không phải project Unity thì phiên bản Unity và phiên bản package lấy từ
+`config/defaults.cfg`, hoặc chỉ định bằng tham số:
+
+```bash
+./setup.sh --download-unity --unity-version 2022.3.62f2 --unity-revision 7670c08855a9   # hoặc --unity-version "2022.3.62f2 (7670c08855a9)"
+UNITY_PROJECT=/path/to/Game ./ua.sh go.tree Assets/Scenes/Main.unity
+./mcp.sh /path/to/Game
+```
+
+CI có job `standalone` chạy đúng cách này: chép `MiniUnity/` ra ngoài repo rồi setup, selftest và fixture.
 
 ## Cài đặt
 
@@ -55,8 +68,9 @@ cd MiniUnity
 `setup.sh` làm:
 
 1. Cài .NET 8 nếu thiếu.
-2. Tìm Unity Editor đúng phiên bản trong `ProjectSettings/ProjectVersion.txt`.
-3. Tải source package mà engine biên dịch chung (Timeline, TextMeshPro, Cinemachine, uGUI chép từ Editor, LitMotion Ease) theo `Packages/packages-lock.json`;
+2. Tìm Unity Editor đúng phiên bản: `--unity-version`, nếu không thì `ProjectSettings/ProjectVersion.txt` của project, nếu không có
+   project thì `config/defaults.cfg`.
+3. Tải source package mà engine biên dịch chung (Timeline, TextMeshPro, Cinemachine, uGUI chép từ Editor, LitMotion Ease) theo `Packages/packages-lock.json` (không có project: `config/defaults.cfg`), cùng test framework và NUnit cho các bài test;
    tarball nào cũng được đối chiếu SHA-1 với registry của Unity.
 4. Sinh `Engine/Generated/`: stub cho toàn bộ API Unity, đọc từ metadata DLL của Editor (`tools/stubgen`).
 5. Sinh `Engine/Decompiled/`: các kiểu thuần managed của Unity (Vector/Quaternion/Color/Mathf…, Pool, Playable, TextCore, SpookyHash),

@@ -1,0 +1,88 @@
+; FBX 7.4.0 project file
+; MiniUnity fixture: a Null "Body" (moved 100 cm on x) with a child cube mesh "Box" (rotated 90° about y),
+; two materials (polygons 0-3 red, 4-5 textured), uvs, no normals (the importer computes them)
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1003
+	FBXVersion: 7400
+}
+GlobalSettings:  {
+	Version: 1000
+	Properties70:  {
+		P: "UpAxis", "int", "Integer", "",1
+		P: "UpAxisSign", "int", "Integer", "",1
+		P: "FrontAxis", "int", "Integer", "",2
+		P: "FrontAxisSign", "int", "Integer", "",1
+		P: "CoordAxis", "int", "Integer", "",0
+		P: "CoordAxisSign", "int", "Integer", "",1
+		P: "UnitScaleFactor", "double", "Number", "",1
+	}
+}
+Objects:  {
+	Geometry: 1001, "Geometry::Box", "Mesh" {
+		Vertices: *24 {
+			a: -50,-50,50,50,-50,50,-50,50,50,50,50,50,-50,50,-50,50,50,-50,-50,-50,-50,50,-50,-50
+		}
+		PolygonVertexIndex: *24 {
+			a: 0,1,3,-3,2,3,5,-5,4,5,7,-7,6,7,1,-1,1,7,5,-4,6,0,2,-5
+		}
+		LayerElementUV: 0 {
+			Version: 101
+			Name: "UVMap"
+			MappingInformationType: "ByPolygonVertex"
+			ReferenceInformationType: "IndexToDirect"
+			UV: *8 {
+				a: 0,0,1,0,1,1,0,1
+			}
+			UVIndex: *24 {
+				a: 0,1,2,3,0,1,2,3,0,1,2,3,0,1,2,3,0,1,2,3,0,1,2,3
+			}
+		}
+		LayerElementMaterial: 0 {
+			Version: 101
+			MappingInformationType: "ByPolygon"
+			ReferenceInformationType: "IndexToDirect"
+			Materials: *6 {
+				a: 0,0,0,0,1,1
+			}
+		}
+	}
+	Model: 2001, "Model::Body", "Null" {
+		Version: 232
+		Properties70:  {
+			P: "Lcl Translation", "Lcl Translation", "", "A",100,0,0
+		}
+	}
+	Model: 2002, "Model::Box", "Mesh" {
+		Version: 232
+		Properties70:  {
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,90,0
+		}
+	}
+	Material: 3001, "Material::Red", "" {
+		Version: 102
+		ShadingModel: "phong"
+		Properties70:  {
+			P: "DiffuseColor", "Color", "", "A",1,0,0
+		}
+	}
+	Material: 3002, "Material::Checker", "" {
+		Version: 102
+		ShadingModel: "phong"
+		Properties70:  {
+			P: "DiffuseColor", "Color", "", "A",0.8,0.8,0.8
+		}
+	}
+	Texture: 4001, "Texture::checker", "" {
+		Type: "TextureVideoClip"
+		FileName: "C:/art/source/checker.png"
+		RelativeFilename: "Textures/checker.png"
+	}
+}
+Connections:  {
+	C: "OO",2001,0
+	C: "OO",2002,2001
+	C: "OO",1001,2002
+	C: "OO",3001,2002
+	C: "OO",3002,2002
+	C: "OP",4001,3002, "DiffuseColor"
+}

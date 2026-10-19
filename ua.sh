@@ -9,4 +9,5 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "$MU_HOME"
 mu_ensure_build || { echo '{"ok": false, "error": "MiniUnity build failed (compiler errors on stderr)"}'; exit 1; }
-mu ua "$UNITY_PROJECT" "$@"
+[ -n "$UNITY_PROJECT" ] || [ "${1:-help}" = help ] || { echo '{"ok": false, "error": "no Unity project: MiniUnity is not inside one; set UNITY_PROJECT=/path/to/project"}'; exit 2; }
+mu ua "${UNITY_PROJECT:-$MU_HOME}" "$@"

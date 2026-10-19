@@ -110,9 +110,7 @@ namespace MiniUnity.Box2D
 
         static IEnumerable<GameObject> AllObjects()
         {
-            var s = SceneData.Active;
-            if (s == null) yield break;
-            foreach (var g in Hier.SceneObjects(s)) yield return g;
+            foreach (var g in Hier.PlayingObjects()) yield return g;
         }
 
         static float Angle2D(Transform t) => t.rotation.eulerAngles.z * Mathf.Deg2Rad;

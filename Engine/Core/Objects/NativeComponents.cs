@@ -113,6 +113,16 @@ namespace UnityEngine
 
     public partial class Camera
     {
+        // command buffers attached to camera events (kept for Get / Remove; the software renderer does not execute them)
+        readonly List<(UnityEngine.Rendering.CameraEvent evt, UnityEngine.Rendering.CommandBuffer cb)> m_CommandBuffers = new();
+        public void AddCommandBuffer(UnityEngine.Rendering.CameraEvent evt, UnityEngine.Rendering.CommandBuffer buffer) { if (buffer == null) throw new ArgumentNullException(nameof(buffer)); m_CommandBuffers.Add((evt, buffer)); }
+        public void AddCommandBufferAsync(UnityEngine.Rendering.CameraEvent evt, UnityEngine.Rendering.CommandBuffer buffer, UnityEngine.Rendering.ComputeQueueType queueType) => AddCommandBuffer(evt, buffer);
+        public void RemoveCommandBuffer(UnityEngine.Rendering.CameraEvent evt, UnityEngine.Rendering.CommandBuffer buffer) => m_CommandBuffers.RemoveAll(c => c.evt == evt && c.cb == buffer);
+        public void RemoveCommandBuffers(UnityEngine.Rendering.CameraEvent evt) => m_CommandBuffers.RemoveAll(c => c.evt == evt);
+        public void RemoveAllCommandBuffers() => m_CommandBuffers.Clear();
+        public UnityEngine.Rendering.CommandBuffer[] GetCommandBuffers(UnityEngine.Rendering.CameraEvent evt) => m_CommandBuffers.Where(c => c.evt == evt).Select(c => c.cb).ToArray();
+        public int commandBufferCount => m_CommandBuffers.Count;
+
         public Camera() { }
         public bool orthographic { get => NBool("orthographic"); set => NSetB("orthographic", value); }
         public float orthographicSize { get => NFloat("orthographic size", 5); set => NSetF("orthographic size", value); }
