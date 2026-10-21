@@ -205,7 +205,9 @@ namespace MiniUnity
             if (UnityEngine.Physics.simulationMode == SimulationMode.Update) SimulatePhysics(DeltaTime);
             if (UnityEngine.Physics2D.simulationMode == SimulationMode2D.Update) SimulatePhysics2D(DeltaTime);
             WebRequests.Pump();   // finished UnityWebRequests raise `completed` before coroutines resume
-            ResumeRoutines(r => r.Wait == null || (r.Wait is WaitForSeconds && Time >= r.Until) || (r.Wait is CustomYieldInstruction cy && !SafeKeepWaiting(cy))
+            // any other yielded value (`yield return 0`, a string…) waits one frame, as in Unity
+            ResumeRoutines(r => r.Wait == null || r.Wait is not (WaitForFixedUpdate or WaitForEndOfFrame or WaitForSeconds or CustomYieldInstruction or Coroutine or AsyncOperation)
+                                || (r.Wait is WaitForSeconds && Time >= r.Until) || (r.Wait is CustomYieldInstruction cy && !SafeKeepWaiting(cy))
                                 || (r.Wait is Coroutine co && (!byHandle.TryGetValue(co, out var other) || other.Done)) || (r.Wait is AsyncOperation ao && ao.isDone));
             RunInvokes();
             foreach (var d in Directors().ToList())   // Update.DirectorUpdate: playing timelines advance and evaluate

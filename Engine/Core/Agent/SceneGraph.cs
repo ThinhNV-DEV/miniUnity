@@ -57,6 +57,8 @@ namespace MiniUnity.Agent
         public readonly List<GNode> Roots = new();
         public readonly Dictionary<long, GNode> ByGo = new(), ByTr = new();
         public readonly Dictionary<long, GComp> CompById = new();
+        /// <summary>Stripped stand-ins whose id is not (instance ^ source) – older or sequentially numbered files – → the virtual id.</summary>
+        public readonly Dictionary<long, long> StrippedAlias = new();
         static readonly Dictionary<string, SceneGraph> sourceCache = new();
         readonly int depth;
 
@@ -84,6 +86,7 @@ namespace MiniUnity.Agent
 
         static string Str(YNode n) => Serializer.Str(n);
         static long Fid(YNode n) => (n as YRef)?.FileID ?? 0;
+        public long Alias(long id) => StrippedAlias.TryGetValue(id, out var v) ? v : id;
 
         void Construct()
         {
@@ -134,10 +137,15 @@ namespace MiniUnity.Agent
                     instanceRoots[inst.FileId] = v;
                 }
             }
+            foreach (var d in f.Docs.Where(d => d.Stripped))
+            {
+                long v = Combine(Fid(d.Body["m_PrefabInstance"]), Fid(d.Body["m_CorrespondingSourceObject"]));
+                if (v != d.FileId && (ByGo.ContainsKey(v) || ByTr.ContainsKey(v) || CompById.ContainsKey(v))) StrippedAlias[d.FileId] = v;
+            }
             // real components added to objects inside an instance (m_GameObject = stripped stand-in of a virtual GameObject)
             foreach (var d in f.Docs.Where(d => !d.Stripped && d.ClassId != 1 && d.ClassId != 1001 && d.Body?["m_GameObject"] is YRef && !CompById.ContainsKey(d.FileId)))
             {
-                if (!ByGo.TryGetValue(Fid(d.Body["m_GameObject"]), out var vn) || !vn.Virtual) continue;
+                if (!ByGo.TryGetValue(Alias(Fid(d.Body["m_GameObject"])), out var vn) || !vn.Virtual) continue;
                 var c = new GComp { Id = d.FileId, ClassId = d.ClassId, Doc = d, Owner = vn, Effective = () => d.Body, Type = TypeName(d.ClassId, d.Body) };
                 CompById[d.FileId] = c;
                 vn.Comps.Add(c);
@@ -145,7 +153,7 @@ namespace MiniUnity.Agent
             // stripped stand-ins of virtual objects (targets of m_Father / added components)
             foreach (var d in f.Docs.Where(d => d.Stripped))
             {
-                long id = d.FileId;
+                long id = Alias(d.FileId);
                 if (ByTr.TryGetValue(id, out var vn) || ByGo.TryGetValue(id, out vn)) strippedToNode[id] = vn;
             }
 
@@ -153,13 +161,13 @@ namespace MiniUnity.Agent
             foreach (var n in ByGo.Values.Where(n => !n.Virtual && n.Tr != 0))
             {
                 var tr = f.Get(n.Tr).Body;
-                long father = Fid(tr["m_Father"]);
+                long father = Alias(Fid(tr["m_Father"]));
                 if (father != 0 && ByTr.TryGetValue(father, out var p)) n.Parent = p;
             }
             foreach (var kv in instanceRoots)
             {
                 var inst = f.Get(kv.Key);
-                long tp = Fid((inst.Body["m_Modification"] as YMap)?["m_TransformParent"]);
+                long tp = Alias(Fid((inst.Body["m_Modification"] as YMap)?["m_TransformParent"]));
                 if (tp != 0 && ByTr.TryGetValue(tp, out var p)) kv.Value.Parent = p;
             }
             // children order: real parents follow m_Children; virtual parents keep source order then added objects
@@ -170,7 +178,7 @@ namespace MiniUnity.Agent
                 if (tr?["m_Children"] is YSeq kids)
                     foreach (var k in kids.Items)
                     {
-                        long kid = Fid(k);
+                        long kid = Alias(Fid(k));
                         var child = ByTr.TryGetValue(kid, out var c) ? c : instanceRoots.Values.FirstOrDefault(r => r.Tr == kid);
                         if (child != null && child.Parent == n && !n.Children.Contains(child)) n.Children.Add(child);
                     }
@@ -185,7 +193,7 @@ namespace MiniUnity.Agent
             {
                 foreach (var r in sceneRoots.Items)
                 {
-                    long id = Fid(r);
+                    long id = Alias(Fid(r));
                     var n = allRoots.FirstOrDefault(x => x.Tr == id);
                     if (n != null && !Roots.Contains(n)) Roots.Add(n);
                 }
@@ -307,6 +315,9 @@ namespace MiniUnity.Agent
                     if (cur is not YSeq s) return;
                     while (s.Items.Count <= idx) s.Items.Add(s.Items.Count > 0 ? s.Items[^1].Clone() : new YScalar(""));
                     if (last) { s.Items[idx] = val; return; }
+                    // a placeholder from growing an empty array (Array.size) becomes the struct / array the next part addresses
+                    if (s.Items[idx] is YScalar ph && string.IsNullOrEmpty(ph.Value))
+                        s.Items[idx] = parts[i + 1] is int || parts[i + 1] is "#size" ? new YSeq() : new YMap();
                     cur = s.Items[idx];
                 }
             }

@@ -301,6 +301,9 @@ namespace MiniUnity
                 try { Serializer.Deserialize(o, d.Body, Resolve); }
                 catch (Exception e) { Debug.LogWarning($"[load] {la.Path}#{id} ({o.GetType().Name}): {e.Message}"); }
             }
+            // Unity writes m_LocalPosition.x/y of a RectTransform as 0 and derives them from anchors / anchoredPosition on load
+            foreach (var id in la.Order)
+                if (la.Objects[id] is RectTransform rt) rt.m_LocalPositionRaw = rt.ComputeLocalPosition();
             // main object
             if (la.IsPrefab)
             {

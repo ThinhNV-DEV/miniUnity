@@ -138,3 +138,12 @@ namespace UnityEditor.Compilation
         internal static bool IsScriptDebugInfoEnabled() => true;
     }
 }
+
+namespace UnityEngine.Rendering
+{
+    public partial class SortingGroup
+    {
+        // kInvalidSortingGroupID in the native SortingGroup manager (20-bit ids); RaycastResult compares against it
+        internal static int invalidSortingGroupID => (1 << 20) - 1;
+    }
+}

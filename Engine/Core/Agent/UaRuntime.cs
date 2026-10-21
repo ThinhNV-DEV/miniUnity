@@ -215,9 +215,9 @@ namespace MiniUnity.Agent
             foreach (var d in f.Docs)
             {
                 if (d.Stripped || d.ClassId == 1001) continue;
-                docs.Add(d);
-                if (d.ClassId is 4 or 224 && d.Body["m_Father"] is YRef fr && g.ByTr.TryGetValue(fr.FileID, out var p) && p.Virtual)
-                    (addedChildren.TryGetValue(fr.FileID, out var l) ? l : addedChildren[fr.FileID] = new()).Add(d.FileId);
+                docs.Add(g.StrippedAlias.Count > 0 ? new YDoc { ClassId = d.ClassId, FileId = d.FileId, TypeName = d.TypeName, Body = (YMap)d.Body.Clone() } : d);
+                if (d.ClassId is 4 or 224 && d.Body["m_Father"] is YRef fr && g.ByTr.TryGetValue(g.Alias(fr.FileID), out var p) && p.Virtual)
+                    (addedChildren.TryGetValue(g.Alias(fr.FileID), out var l) ? l : addedChildren[g.Alias(fr.FileID)] = new()).Add(d.FileId);
             }
             foreach (var n in g.All().Where(n => n.Virtual))
             {
@@ -239,6 +239,20 @@ namespace MiniUnity.Agent
                     }
                     docs.Add(new YDoc { ClassId = c.ClassId, FileId = c.Id, TypeName = ClassIds.Name(c.ClassId), Body = b });
                 }
+            }
+            // references to stripped stand-ins that Unity numbered without the (instance ^ source) rule
+            if (g.StrippedAlias.Count > 0)
+            {
+                void Fix(YNode n)
+                {
+                    switch (n)
+                    {
+                        case YRef r when r.Raw && string.IsNullOrEmpty(r.Guid): r.FileID = g.Alias(r.FileID); break;
+                        case YMap m: foreach (var e in m.Entries) Fix(e.Value); break;
+                        case YSeq s: foreach (var i in s.Items) Fix(i); break;
+                    }
+                }
+                foreach (var d in docs) Fix(d.Body);
             }
             return docs;
         }

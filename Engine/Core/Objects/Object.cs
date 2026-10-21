@@ -100,11 +100,12 @@ namespace UnityEngine
         public static T Instantiate<T>(T original, Vector3 position, Quaternion rotation, Transform parent) where T : Object => (T)Instantiate((Object)original, position, rotation, parent);
 
         // ---------------- Destroy ----------------
-        public static void Destroy(Object obj) => DestroyImmediate(obj);
+        public static void Destroy(Object obj) => Destroy(obj, 0f);
         public static void Destroy(Object obj, float t)
         {
-            // delayed destroy in play mode (scaled time, processed at the end of the frame like Unity)
-            if (t > 0 && MiniUnity.Play.IsPlaying) { MiniUnity.Play.DestroyLater(obj, t); return; }
+            // play mode: destruction waits for the end of the frame like Unity (t = 0: this frame), so code after Destroy in the same
+            // callback still sees the object; delayed destroy counts scaled time
+            if (MiniUnity.Play.IsPlaying && obj != null) { MiniUnity.Play.DestroyLater(obj, Math.Max(0f, t)); return; }
             DestroyImmediate(obj);
         }
         public static void DestroyImmediate(Object obj) => DestroyImmediate(obj, false);

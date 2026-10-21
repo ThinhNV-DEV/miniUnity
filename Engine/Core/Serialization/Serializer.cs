@@ -652,6 +652,12 @@ namespace MiniUnity
             {
                 var ev = cur ?? Activator.CreateInstance(t, true);
                 if (n != null) rawEvents.AddOrUpdate(ev, ResolveRefs(n, resolve));
+                // persistent listeners (Inspector-wired calls) into the real PersistentCallGroup, so Invoke reaches them as in Unity
+                if (n is YMap em && depth < 10)
+                {
+                    ReadFields(em, ev, t, resolve, depth + 1);
+                    if (ev is ISerializationCallbackReceiver er) { try { er.OnAfterDeserialize(); } catch (Exception e) { Problem($"{t.Name}.OnAfterDeserialize", e); } }
+                }
                 return ev;
             }
             var obj = cur ?? CreateSerializable(t);
