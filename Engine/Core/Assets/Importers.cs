@@ -117,9 +117,42 @@ namespace MiniUnity
                     if (ImportArtifacts.DocsFor(la.Path) is { Count: > 0 } docs) { AssetLoader.LoadDocsInto(la, docs); break; }
                     // no import result: read the model file itself
                     if (ext == ".fbx" && FbxImporter.Import(la, meta, (fid, o, main) => Add(fid, o, main))) break;
+                    if (ext == ".inputactions" && ImportInputActions(la, (fid, o, main) => Add(fid, o, main))) break;
                     if (AssetLoader.Verbose) Console.Error.WriteLine("[import] unsupported " + la.Path);
                     break;
             }
+        }
+
+        /// <summary>File ID Unity gives an object a ScriptedImporter adds with AddObjectToAsset(identifier, obj): xxHash64 of
+        /// "Type:&lt;class&gt;-&gt;&lt;identifier&gt;&lt;n&gt;" (n counts earlier objects with that class and identifier), class
+        /// "MonoBehaviour" for ScriptableObjects — the same scheme as model sub-assets.</summary>
+        public static long ScriptedImporterId(string className, string identifier, int n = 0)
+            => unchecked((long)FbxImporter.XxHash64(System.Text.Encoding.UTF8.GetBytes($"Type:{className}->{identifier}{n}")));
+
+        /// <summary>Input System .inputactions (InputActionImporter): the InputActionAsset ("&lt;root&gt;") and an InputActionReference
+        /// per action (identified by the action's id), built by the package's own InputActionAsset.FromJson.</summary>
+        static bool ImportInputActions(LoadedAsset la, Action<long, UnityEngine.Object, bool> add)
+        {
+            var assetType = TypeCache.FindType("UnityEngine.InputSystem.InputActionAsset");
+            var refType = TypeCache.FindType("UnityEngine.InputSystem.InputActionReference");
+            if (assetType == null || refType == null) return false;
+            try
+            {
+                var asset = (ScriptableObject)assetType.GetMethod("FromJson", new[] { typeof(string) }).Invoke(null, new object[] { File.ReadAllText(AssetIndex.Abs(la.Path)) });
+                asset.name = Path.GetFileNameWithoutExtension(la.Path);
+                add(ScriptedImporterId("MonoBehaviour", "<root>"), asset, true);
+                var create = refType.GetMethod("Create", new[] { TypeCache.FindType("UnityEngine.InputSystem.InputAction") });
+                var displayName = refType.GetMethod("GetDisplayName", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public, null, new[] { TypeCache.FindType("UnityEngine.InputSystem.InputAction") }, null);
+                foreach (var map in (System.Collections.IEnumerable)assetType.GetProperty("actionMaps").GetValue(asset))
+                    foreach (var action in (System.Collections.IEnumerable)map.GetType().GetProperty("actions").GetValue(map))
+                    {
+                        var r = (ScriptableObject)create.Invoke(null, new[] { action });
+                        r.name = displayName?.Invoke(null, new[] { action }) as string ?? r.name;
+                        add(ScriptedImporterId("MonoBehaviour", action.GetType().GetProperty("id").GetValue(action).ToString()), r, false);
+                    }
+                return true;
+            }
+            catch (Exception e) { Debug.LogWarning($"[import] {la.Path}: {(e.InnerException ?? e).Message}"); return false; }
         }
 
         public static (int, int) ImageSize(string path)

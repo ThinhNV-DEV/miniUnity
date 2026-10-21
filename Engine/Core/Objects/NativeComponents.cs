@@ -68,8 +68,28 @@ namespace UnityEngine
         public bool hasMoved => false;
         public bool hasPopInstruction { get; set; }
         public bool hasRectClipping => m_RectClipping;
-        public int absoluteDepth => 0;
-        public int relativeDepth => 0;
+        /// <summary>Draw order within the root canvas (depth-first over the active hierarchy, as the native canvas batches it);
+        /// -1 when not under an enabled canvas. GraphicRaycaster / EventSystem sort hits by it, children above parents.</summary>
+        public int absoluteDepth
+        {
+            get
+            {
+                if (!gameObject.activeInHierarchy) return -1;
+                Canvas root = null;
+                for (var t = transform; t != null; t = t.m_Parent) if (t.gameObject.GetComponent<Canvas>() is Canvas c && c.enabled) root = c;
+                if (root == null) return -1;
+                int i = 0, found = -1;
+                void Walk(Transform t)
+                {
+                    if (found >= 0 || !t.gameObject.activeSelf) return;
+                    if (t.gameObject.GetComponent<CanvasRenderer>() is CanvasRenderer cr) { if (cr == this) { found = i; return; } i++; }
+                    foreach (var ch in t.m_Children) Walk(ch);
+                }
+                Walk(root.transform);
+                return found;
+            }
+        }
+        public int relativeDepth => absoluteDepth;
         public int materialCount { get => m_MaterialCount; set => m_MaterialCount = value; }
         public int popMaterialCount { get => m_PopMaterialCount; set => m_PopMaterialCount = value; }
         public Vector2 clippingSoftness { get; set; }
