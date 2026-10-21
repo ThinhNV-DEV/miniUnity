@@ -343,6 +343,37 @@ namespace UnityEngine
         public static int height => (int)MiniUnity.Screen.Height;
         public static float dpi => 96;
         public static bool fullScreen { get => false; set { } }
+        // a single 60 Hz display the size of the play window; orientation / sleep settings are stored and read back
+        public static Resolution currentResolution => new Resolution { width = width, height = height, refreshRateRatio = new RefreshRate { numerator = 60, denominator = 1 } };
+        public static Resolution[] resolutions => new[] { currentResolution };
+        public static Rect safeArea => new Rect(0, 0, width, height);
+        public static Rect[] cutouts => Array.Empty<Rect>();
+        public static FullScreenMode fullScreenMode { get; set; } = FullScreenMode.Windowed;
+        public static ScreenOrientation orientation { get; set; } = ScreenOrientation.Portrait;
+        public static bool autorotateToPortrait { get; set; } = true;
+        public static bool autorotateToPortraitUpsideDown { get; set; } = true;
+        public static bool autorotateToLandscapeLeft { get; set; } = true;
+        public static bool autorotateToLandscapeRight { get; set; } = true;
+        public static int sleepTimeout { get; set; } = SleepTimeout.SystemSetting;
+        public static float brightness { get; set; } = 1f;
+    }
+
+    public partial struct Resolution
+    {
+        int m_Width, m_Height; RefreshRate m_RefreshRate;
+        public int width { get => m_Width; set => m_Width = value; }
+        public int height { get => m_Height; set => m_Height = value; }
+        public RefreshRate refreshRateRatio { get => m_RefreshRate; set => m_RefreshRate = value; }
+        public int refreshRate { get => (int)Math.Round(m_RefreshRate.value); set => m_RefreshRate = new RefreshRate { numerator = (uint)value, denominator = 1 }; }
+        public override string ToString() => $"{m_Width} x {m_Height} @ {m_RefreshRate}Hz";
+    }
+
+    public partial struct RefreshRate
+    {
+        public double value => denominator == 0 ? 0 : (double)numerator / denominator;
+        public bool Equals(RefreshRate other) => (ulong)numerator * other.denominator == (ulong)other.numerator * denominator;
+        public int CompareTo(RefreshRate other) => value.CompareTo(other.value);
+        public override string ToString() => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
     }
 }
 

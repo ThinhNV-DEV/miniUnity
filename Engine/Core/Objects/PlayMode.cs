@@ -119,6 +119,9 @@ namespace MiniUnity
         {
             IsPlaying = true;
             Time = UnscaledTime = FixedTime = 0; Frame = 0;
+            // [RuntimeInitializeOnLoadMethod] before the first scene wakes up (UniTask's PlayerLoopHelper, VContainer, …)
+            foreach (var lt in new[] { RuntimeInitializeLoadType.SubsystemRegistration, RuntimeInitializeLoadType.AfterAssembliesLoaded,
+                         RuntimeInitializeLoadType.BeforeSplashScreen, RuntimeInitializeLoadType.BeforeSceneLoad }) RunInitializeOnLoad(lt);
             // Awake (all), then OnEnable, in hierarchy order – MiniUnity's Lifecycle does both when an object becomes active
             foreach (var g in SceneObjects().ToList())
                 foreach (var c in g.m_Components.ToList())
@@ -126,6 +129,43 @@ namespace MiniUnity
             foreach (var mb in Active()) Call(mb, "OnEnable");
             Audio.AudioSystem.CheckPlayOnAwake();
             foreach (var d in Directors()) if (d.playOnAwake && d.playableAsset != null) { d.time = d.initialTime; d.Play(); }
+            RunInitializeOnLoad(RuntimeInitializeLoadType.AfterSceneLoad);   // after Awake / OnEnable, before Start
+        }
+
+        /// <summary>Static methods marked [RuntimeInitializeOnLoadMethod(loadType)] in the project's assemblies (packages included).
+        /// The attribute is read from metadata (no instance), its default load type being AfterSceneLoad as in Unity.</summary>
+        static void RunInitializeOnLoad(RuntimeInitializeLoadType when)
+        {
+            foreach (var asm in TypeCache.ProjectAssemblies.ToList())
+            {
+                Type[] types;
+                try { types = asm.GetTypes(); } catch (ReflectionTypeLoadException e) { types = e.Types.Where(t => t != null).ToArray(); }
+                foreach (var t in types)
+                {
+                    MethodInfo[] methods;
+                    try { methods = t.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly); }
+                    catch (Exception) { continue; }   // a type whose dependencies do not load here (test framework internals)
+                    foreach (var m in methods)
+                    {
+                        IEnumerable<CustomAttributeData> attrs;
+                        try
+                        {
+                            attrs = m.CustomAttributes.Where(a => a.AttributeType == typeof(RuntimeInitializeOnLoadMethodAttribute)).ToList();
+                            if (!attrs.Any() || m.IsGenericMethodDefinition || m.GetParameters().Length != 0) continue;
+                        }
+                        catch (Exception) { continue; }
+                        foreach (var a in attrs)
+                        {
+                            if (a.AttributeType != typeof(RuntimeInitializeOnLoadMethodAttribute)) continue;
+                            var lt = a.ConstructorArguments.Count > 0 ? (RuntimeInitializeLoadType)(int)a.ConstructorArguments[0].Value : RuntimeInitializeLoadType.AfterSceneLoad;
+                            if (lt != when) continue;
+                            try { m.Invoke(null, null); }
+                            catch (TargetInvocationException tie) { Report(tie.InnerException ?? tie, $"{t.Name}.{m.Name}"); }
+                            catch (Exception e) { Report(e, $"{t.Name}.{m.Name}"); }
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>A scene loaded during play (SceneManager.LoadScene): Awake then OnEnable over its objects, play-on-awake

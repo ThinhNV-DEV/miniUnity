@@ -1,6 +1,7 @@
 // Small hand implementations of engine members hit at runtime (auto-excluded from the stubs).
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace UnityEngine.Experimental.Rendering
@@ -57,6 +58,23 @@ namespace UnityEditor
     public sealed partial class EditorSettings
     {
         public static SpritePackerMode spritePackerMode { get => SpritePackerMode.Disabled; set { } }
+        // MiniUnity enters play mode once per process from freshly loaded state, i.e. with domain and scene reload
+        public static bool enterPlayModeOptionsEnabled { get => false; set { } }
+        public static EnterPlayModeOptions enterPlayModeOptions { get => EnterPlayModeOptions.None; set { } }
+    }
+
+    public sealed partial class PlayerSettings
+    {
+        /// <summary>PlayerSettings' preloadedAssets (ProjectSettings.asset), loaded.</summary>
+        public static UnityEngine.Object[] GetPreloadedAssets()
+        {
+            var path = System.IO.Path.Combine(MiniUnity.AssetIndex.Root, "ProjectSettings/ProjectSettings.asset");
+            if (!System.IO.File.Exists(path)) return Array.Empty<UnityEngine.Object>();
+            var body = MiniUnity.Yaml.YamlReader.ReadFile(path).FirstOrDefault()?.Body;
+            if (body?["preloadedAssets"] is not MiniUnity.Yaml.YSeq seq) return Array.Empty<UnityEngine.Object>();
+            return seq.Items.OfType<MiniUnity.Yaml.YRef>().Select(r => MiniUnity.AssetLoader.ResolveExternal(r)).Where(o => o != null).ToArray();
+        }
+        public static void SetPreloadedAssets(UnityEngine.Object[] assets) { }
     }
 }
 

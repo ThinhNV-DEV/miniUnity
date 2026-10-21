@@ -67,13 +67,15 @@ namespace MiniUnity
                 foreach (var kv in recycle.Entries)
                     if (long.TryParse(kv.Key, out long fid)) ids.TryAdd(((int)(fid / 100000), Serializer.Str(kv.Value)), fid);
             var used = new HashSet<long>();
+            var occurrences = new Dictionary<(int, string), int>();
             long Id(int cls, string name)
             {
                 if (ids.TryGetValue((cls, name), out var v) && used.Add(v)) return v;
-                // not in the .meta (Unity derives these from a hash): a stable negative id of our own
-                ulong h = 14695981039346656037;
-                foreach (var ch in cls + ":" + name) { h ^= ch; h *= 1099511628211; }
-                long id = -(long)(h >> 2) - 1;
+                // not in the .meta (Unity 2019.3+ writes no table): Unity's own id, xxHash64 of "Type:<Class>-><name><n>" where n counts
+                // earlier objects of the same class and name
+                int n = occurrences.TryGetValue((cls, name), out var k) ? k : 0;
+                occurrences[(cls, name)] = n + 1;
+                long id = unchecked((long)XxHash64(System.Text.Encoding.UTF8.GetBytes($"Type:{Agent.ClassIds.Name(cls)}->{name}{n}")));
                 while (!used.Add(id)) id--;
                 return id;
             }
@@ -145,7 +147,7 @@ namespace MiniUnity
                 var mats = Kids(model.Id, "Material").ToList();
                 var mesh = BuildMesh(geo.Node, GeometricMatrix(model.Node), scale, Math.Max(1, mats.Count), out int usedSubmeshes);
                 if (mesh == null) continue;
-                mesh.name = go.m_Name;
+                mesh.name = model.Name;   // the node's name, also when the root GameObject takes the file's name
                 add(Id(43, mesh.name), mesh, false);
                 meshCount++;
                 var mf = (MeshFilter)Lifecycle.CreateComponentRaw(go, typeof(MeshFilter));
@@ -171,6 +173,35 @@ namespace MiniUnity
             la.IsPrefab = true;
             la.Main = root;
             return true;
+        }
+
+        /// <summary>XXH64 with seed 0 (the hash behind Unity's model sub-asset file IDs).</summary>
+        internal static ulong XxHash64(byte[] data)
+        {
+            const ulong P1 = 11400714785074694791UL, P2 = 14029467366897019727UL, P3 = 1609587929392839161UL, P4 = 9650029242287828579UL, P5 = 2870177450012600261UL;
+            static ulong Rotl(ulong x, int r) => (x << r) | (x >> (64 - r));
+            static ulong Round(ulong acc, ulong input) => Rotl(acc + input * P2, 31) * P1;
+            static ulong Merge(ulong acc, ulong val) => (acc ^ Round(0, val)) * P1 + P4;
+            int len = data.Length, i = 0;
+            ulong h;
+            if (len >= 32)
+            {
+                ulong v1 = unchecked(P1 + P2), v2 = P2, v3 = 0, v4 = unchecked(0 - P1);
+                for (; i <= len - 32; i += 32)
+                {
+                    v1 = Round(v1, BitConverter.ToUInt64(data, i)); v2 = Round(v2, BitConverter.ToUInt64(data, i + 8));
+                    v3 = Round(v3, BitConverter.ToUInt64(data, i + 16)); v4 = Round(v4, BitConverter.ToUInt64(data, i + 24));
+                }
+                h = Rotl(v1, 1) + Rotl(v2, 7) + Rotl(v3, 12) + Rotl(v4, 18);
+                h = Merge(h, v1); h = Merge(h, v2); h = Merge(h, v3); h = Merge(h, v4);
+            }
+            else h = P5;
+            h += (ulong)len;
+            for (; i + 8 <= len; i += 8) h = Rotl(h ^ Round(0, BitConverter.ToUInt64(data, i)), 27) * P1 + P4;
+            if (i + 4 <= len) { h = Rotl(h ^ (BitConverter.ToUInt32(data, i) * P1), 23) * P2 + P3; i += 4; }
+            for (; i < len; i++) h = Rotl(h ^ (data[i] * P5), 11) * P1;
+            h ^= h >> 33; h *= P2; h ^= h >> 29; h *= P3; h ^= h >> 32;
+            return h;
         }
 
         // ---------------------------------------------------------------- properties

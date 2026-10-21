@@ -506,7 +506,9 @@ namespace MiniUnity
             var nat = new YMap();
             foreach (var e in body.Entries)
             {
-                if (e.Key is "m_ObjectHideFlags" or "m_CorrespondingSourceObject" or "m_PrefabInstance" or "m_PrefabAsset" or "m_GameObject" or "m_Enabled") continue;
+                if (e.Key is "m_ObjectHideFlags" or "m_CorrespondingSourceObject" or "m_PrefabInstance" or "m_PrefabAsset" or "m_GameObject") continue;
+                // a Behaviour keeps m_Enabled in its field; Collider / Renderer (Components with their own enabled) read it from the body
+                if (e.Key == "m_Enabled" && o is Behaviour) continue;
                 nat.Add(e.Key, ResolveRefs(e.Value, resolve)); // m_Name kept as an ordering placeholder for assets
             }
             o.m_Native = nat;

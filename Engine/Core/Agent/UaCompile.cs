@@ -312,7 +312,7 @@ namespace MiniUnity.Agent
             foreach (var mi in new[] { 3, 4, 5, 6 }) d.Add($"UNITY_5_{mi}_OR_NEWER");
             for (int y = 2017; y <= major && y < 3000; y++)
                 for (int mi = 1; mi <= (y == major ? minor : y >= 2020 ? 3 : 4); mi++) d.Add($"UNITY_{y}_{mi}_OR_NEWER");
-            foreach (var x in new[] { "UNITY_EDITOR", "UNITY_ASSERTIONS", "ENABLE_MONO", "NET_STANDARD_2_1", "NET_STANDARD", "NETSTANDARD2_1", "NETSTANDARD", "CSHARP_7_3_OR_NEWER",
+            foreach (var x in new[] { "UNITY_EDITOR", "UNITY_ASSERTIONS", "ENABLE_MONO", "NET_STANDARD_2_0", "NET_STANDARD_2_1", "NET_STANDARD", "NETSTANDARD2_1", "NETSTANDARD", "CSHARP_7_3_OR_NEWER",
                 "DEBUG", "TRACE", "UNITY_SERVER_FALSE", "ENABLE_AUDIO", "ENABLE_CLOTH", "ENABLE_PHYSICS", "ENABLE_UNITYEVENTS", "ENABLE_CLOUD_SERVICES", "ENABLE_UNET",
                 "UNITY_TEAM_LICENSE", "ENABLE_MANAGED_JOBS", "ENABLE_BURST_AOT", "ENABLE_UNITY_COLLECTIONS_CHECKS", "ENABLE_TEXTURE_STREAMING", "ENABLE_RUNTIME_GI" }) d.Add(x);
             d.Add(OperatingSystem.IsWindows() ? "UNITY_EDITOR_WIN" : OperatingSystem.IsMacOS() ? "UNITY_EDITOR_OSX" : "UNITY_EDITOR_LINUX");
@@ -454,7 +454,7 @@ namespace MiniUnity.Agent
                 var defs = AssemblyDefines(m, a);
                 bool editorProfile = a.Editor || (a.Predefined && a.Name.Contains("Editor")) || m.Net48;
                 var refs = new List<MetadataReference>(editorProfile ? net48 : netstd);
-                if (editorProfile) { defs.Remove("NET_STANDARD_2_1"); defs.Remove("NET_STANDARD"); defs.Remove("NETSTANDARD2_1"); defs.Remove("NETSTANDARD"); defs.Add("NET_4_6"); defs.Add("NET_UNITY_4_8"); }
+                if (editorProfile) { defs.Remove("NET_STANDARD_2_0"); defs.Remove("NET_STANDARD_2_1"); defs.Remove("NET_STANDARD"); defs.Remove("NETSTANDARD2_1"); defs.Remove("NETSTANDARD"); defs.Add("NET_4_6"); defs.Add("NET_UNITY_4_8"); }
                 if (!a.NoEngineRefs) refs.AddRange(engineEditor);   // Editor compilation: runtime assemblies see UnityEditor too (#if UNITY_EDITOR)
                 // ILPostProcessor assemblies (*.CodeGen) compile against Unity.CompilationPipeline.Common
                 if (a.Name.EndsWith(".CodeGen") && codegen != null) refs.Add(codegen);
