@@ -221,7 +221,9 @@ namespace UnityEngine.Networking
             if (m_Timeout > 0) m_Cancel.CancelAfter(TimeSpan.FromSeconds(m_Timeout));
             var body = m_Upload?.data; var contentType = m_Upload?.contentType;
             var headers = new Dictionary<string, string>(m_Headers);
-            m_Task = WebRequests.Run(m_Url, m_Method, headers, body, contentType, m_RedirectLimit, m_Cancel.Token);
+            var url = m_Url; var method = m_Method; var redirects = m_RedirectLimit; var ct = m_Cancel.Token;
+            // off the play-mode SynchronizationContext: the transfer's continuations must not wait for the player loop
+            m_Task = Task.Run(() => WebRequests.Run(url, method, headers, body, contentType, redirects, ct));
             if (MiniUnity.Play.IsPlaying) WebRequests.Track(this);
             else Poll(block: true);   // no player loop: finish now (completed handlers added later fire immediately)
             return m_Op;
