@@ -214,6 +214,7 @@ namespace MiniUnity
                 c.Render();
                 c.targetTexture = null;
             }
+            UIRenderer.RenderOverlay(frame);
         }
 
         static FileStream AcquireLock(string path)

@@ -61,6 +61,30 @@ namespace MiniUnity
             return a;
         }
 
+        // ------------------------------------------------------------------ Screen Space - Overlay
+        /// <summary>Canvases in Screen Space - Overlay (and Screen Space - Camera without a camera, which Unity draws as overlay):
+        /// drawn over everything the cameras rendered, in screen pixels, by sorting order.</summary>
+        public static void RenderOverlay(RenderTexture target)
+        {
+            Canvas.ForceUpdateCanvases();
+            var canvases = ObjectRegistry.SceneObjects(typeof(Canvas), false).Cast<Canvas>()
+                .Where(c => c.enabled && c.gameObject.activeInHierarchy && c.isRootCanvas)
+                .Where(c => c.renderMode == RenderMode.ScreenSpaceOverlay || (c.renderMode == RenderMode.ScreenSpaceCamera && c.worldCamera == null))
+                .OrderBy(c => c.sortingOrder).ToList();
+            if (canvases.Count == 0) return;
+            target.EnsureBuffers();
+            int W = target.SurfW, H = target.SurfH;
+            Array.Clear(target.m_SurfStencil); Array.Fill(target.m_SurfDepth, 1f);
+            // the canvas is laid out in screen pixels (Screen.width × Screen.height); a camera at its centre looking down +z
+            float sw = Math.Max(1, MiniUnity.Screen.Width), sh = Math.Max(1, MiniUnity.Screen.Height);
+            var P = Matrix4x4.Ortho(0, sw, 0, sh, -1000, 1000);
+            var V = Matrix4x4.Scale(new Vector3(1, 1, -1));
+            var view = new View { W = W, H = H, P = P, VP = P * V, camPos = new Vector3(sw * .5f, sh * .5f, -1000), target = target };
+            foreach (var c in canvases) DrawCanvas(c, view);
+            target.Resolve();
+            target.m_RVersion++;
+        }
+
         // ------------------------------------------------------------------ camera
         public static void RenderCamera(Camera cam)
         {
