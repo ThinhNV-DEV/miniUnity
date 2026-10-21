@@ -481,6 +481,7 @@ namespace MiniUnity.Physics3D
             }
             foreach (var s in shapes.Values) UpdateShapeWorld(s);
             foreach (var b in awake) SleepCheck(b, dt, newPairs.Values);
+            WakeOnLostTouch(newPairs);
 
             BuildEvents(newPairs, newTriggers);
             pairs = newPairs; triggerPairs = newTriggers;
@@ -906,6 +907,15 @@ namespace MiniUnity.Physics3D
         public static readonly List<CollisionEvent> PendingEvents = new();
 
         static bool Reports(Pair p) => p.A.Body.Dynamic || p.B.Body.Dynamic;
+
+        /// <summary>PhysX lost touch: a sleeping body whose contact pair stopped touching (the other body moved away, became
+        /// kinematic and was teleported, or its shape was removed) wakes up, so a marble resting on another one falls once it leaves.</summary>
+        static void WakeOnLostTouch(Dictionary<(Shape, Shape), Pair> now)
+        {
+            static void W(Body b) { if (b.Dynamic && b.Sleeping) Wake(b); }
+            foreach (var (k, p) in pairs) if (!now.ContainsKey(k)) { W(p.A.Body); W(p.B.Body); }
+            foreach (var p in pendingExit) { W(p.A.Body); W(p.B.Body); }
+        }
 
         static void BuildEvents(Dictionary<(Shape, Shape), Pair> now, HashSet<(Shape, Shape)> trig)
         {

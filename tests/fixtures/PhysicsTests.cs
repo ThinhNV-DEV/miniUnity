@@ -62,6 +62,19 @@ public class PhysicsTests
         Assert.IsTrue(rb.IsSleeping(), "sleeping after settling");
     }
 
+    [UnityTest] public IEnumerator SleepingBallWakesWhenItsSupportIsTeleportedAway()
+    {
+        var support = Box(new Vector3(0, 0.5f, 0), Vector3.one);
+        support.isKinematic = true;
+        var rb = Ball(new Vector3(0, 1.5f, 0));
+        yield return Fixed(200);
+        Assert.IsTrue(rb.IsSleeping(), "settled on the kinematic box");
+        support.transform.position = new Vector3(20, 0.5f, 0);   // teleported, no MovePosition: PhysX lost touch wakes the ball
+        yield return Fixed(30);
+        Assert.IsFalse(rb.IsSleeping());
+        Assert.Less(rb.position.y, 0.5f, "falls once nothing holds it");
+    }
+
     [UnityTest] public IEnumerator BouncyBallReboundsAboveThreshold()
     {
         var mat = new PhysicMaterial { bounciness = 1, bounceCombine = PhysicMaterialCombine.Maximum };
