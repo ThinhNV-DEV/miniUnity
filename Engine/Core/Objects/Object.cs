@@ -9,7 +9,9 @@ namespace UnityEngine
     {
         static int s_NextId = 2;
         internal int m_InstanceID;
-        internal bool m_Destroyed;
+        // like Unity's: non-zero while the native object lives (Odin and other code read it by reflection for the fake-null check)
+        private IntPtr m_CachedPtr = (IntPtr)1;
+        internal bool m_Destroyed { get => m_CachedPtr == IntPtr.Zero; set => m_CachedPtr = value ? IntPtr.Zero : (IntPtr)1; }
         internal string m_Name = "";
         internal HideFlags m_HideFlags;
         /// <summary>Persistent identity (asset objects): guid + local fileID in that asset.</summary>

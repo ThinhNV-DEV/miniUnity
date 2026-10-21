@@ -23,7 +23,9 @@ namespace MiniUnity
 
         /// <summary>Shaders written in C# by name (see WorldShader); everything else draws as Standard.</summary>
         public static readonly Dictionary<string, WorldShader> Shaders = new(StringComparer.Ordinal);
-        static WorldRenderer() => BuiltinShaders.Register(Shaders);
+        /// <summary>Shader families matched by name prefix when <see cref="Shaders"/> has no exact entry (generated shaders).</summary>
+        public static readonly Dictionary<string, WorldShader> ShaderPrefixes = new(StringComparer.Ordinal);
+        static WorldRenderer() => BuiltinShaders.Register(Shaders, ShaderPrefixes);
         static readonly WorldShader StandardTextured = new BuiltinShaders.StandardTextured();
 
         sealed class Draw
@@ -56,7 +58,7 @@ namespace MiniUnity
                 // URP / custom shaders name the base colour _BaseColor
                 bool hasColor = (block != null && block.HasVector("_Color")) || (m != null && m.HasProperty("_Color"));
                 bool hasBase = (block != null && block.HasVector("_BaseColor")) || (m != null && m.HasProperty("_BaseColor"));
-                var c = !hasColor && hasBase ? C("_BaseColor", Color.white) : C("_Color", Color.white);
+                var c = hasBase && (!hasColor || WorldShader.UsesBaseColor(m)) ? C("_BaseColor", Color.white) : C("_Color", Color.white);
                 x.albedo = new Color(Mathf.GammaToLinearSpace(c.r), Mathf.GammaToLinearSpace(c.g), Mathf.GammaToLinearSpace(c.b), c.a);
                 x.smooth = F("_Glossiness", .5f); x.metal = F("_Metallic", 0);
                 bool rounded = m != null && RoundedBoxShaders.Contains(UIRenderer.ShaderName(m.shader));
@@ -143,7 +145,8 @@ namespace MiniUnity
             // world-space TextMeshPro (TextMeshPro component on a MeshRenderer): the SDF text shader, alpha blended, no depth write
             if (UIRenderer.IsTmpSdf(sname))
                 return new Draw { mesh = mesh, mat = m, sub = s, M = M, transparent = true, text = true, dist = dist, block = block, cast = ShadowCastingMode.Off };
-            Shaders.TryGetValue(sname, out var shader);
+            if (!Shaders.TryGetValue(sname, out var shader))
+                foreach (var kv in ShaderPrefixes) if (sname.StartsWith(kv.Key, StringComparison.Ordinal)) { shader = kv.Value; break; }
             // Standard with a texture, Cutout mode or a normal map goes through the C# Standard (same lighting); plain Standard keeps
             // the visibility-buffer path
             if (shader == null && !RoundedBoxShaders.Contains(sname) && (m.GetTexture("_MainTex") != null || m.GetTexture("_BaseMap") != null || m.GetTexture("_BumpMap") != null || (m.HasProperty("_Mode") && (int)m.GetFloat("_Mode") == 1)))
@@ -177,7 +180,44 @@ namespace MiniUnity
             public ShadowMap shadow;
             public sealed class Extra { public LightType type; public Vector3 pos, dir; public Color col; public float range, cosOuter, cosInner; }
             public readonly List<Extra> extras = new List<Extra>();
-            static Color Lin(Light l) { var c = l.color * l.intensity; return new Color(Mathf.GammaToLinearSpace(c.r), Mathf.GammaToLinearSpace(c.g), Mathf.GammaToLinearSpace(c.b)); }
+            static Color Lin(Light l)
+            {
+                var (linearIntensity, useTemperature) = LightSettings();
+                if (!linearIntensity) { var g = l.color * l.intensity; return new Color(Mathf.GammaToLinearSpace(g.r), Mathf.GammaToLinearSpace(g.g), Mathf.GammaToLinearSpace(g.b)); }
+                // GraphicsSettings.lightsUseLinearIntensity (always on with a render pipeline such as URP): linear colour × intensity,
+                // tinted by the colour temperature when lightsUseColorTemperature and the light uses one
+                var c = l.color.linear * l.intensity;
+                if (useTemperature && l.useColorTemperature) { var t = Temperature(l.colorTemperature); c = new Color(c.r * t.r, c.g * t.g, c.b * t.b); }
+                return new Color(c.r, c.g, c.b);
+            }
+            static (string root, bool linear, bool temperature) s_LightSettings;
+            static (bool, bool) LightSettings()
+            {
+                if (s_LightSettings.root == MiniUnity.AssetIndex.Root) return (s_LightSettings.linear, s_LightSettings.temperature);
+                bool lin = false, temp = false;
+                try
+                {
+                    var path = System.IO.Path.Combine(MiniUnity.AssetIndex.Root ?? "", "ProjectSettings/GraphicsSettings.asset");
+                    if (System.IO.File.Exists(path) && MiniUnity.Yaml.YamlReader.ReadFile(path).FirstOrDefault()?.Body is MiniUnity.Yaml.YMap b)
+                    {
+                        bool srp = (b["m_CustomRenderPipeline"] as MiniUnity.Yaml.YRef)?.FileID is long f && f != 0;
+                        lin = srp || MiniUnity.Serializer.Int(b["m_LightsUseLinearIntensity"], 0) != 0;
+                        temp = srp || MiniUnity.Serializer.Int(b["m_LightsUseColorTemperature"], 0) != 0;
+                    }
+                }
+                catch (Exception) { }
+                s_LightSettings = (MiniUnity.AssetIndex.Root, lin, temp);
+                return (lin, temp);
+            }
+            /// <summary>Linear RGB of a black body at <paramref name="kelvin"/>, ~white at 6600 K (Mathf.CorrelatedColorTemperatureToRGB stand-in).</summary>
+            static Color Temperature(float kelvin)
+            {
+                double t = Math.Clamp(kelvin, 1000, 20000) / 100.0, r, g, bl;
+                if (t <= 66) { r = 255; g = 99.4708025861 * Math.Log(t) - 161.1195681661; bl = t <= 19 ? 0 : 138.5177312231 * Math.Log(t - 10) - 305.0447927307; }
+                else { r = 329.698727446 * Math.Pow(t - 60, -0.1332047592); g = 288.1221695283 * Math.Pow(t - 60, -0.0755148492); bl = 255; }
+                float C(double v) => Mathf.GammaToLinearSpace((float)Math.Clamp(v / 255.0, 0, 1));
+                return new Color(C(r), C(g), C(bl));
+            }
             public Color sky, equator, ground; public float ambI;
             public bool fog; public FogMode fogMode; public Color fogCol; public float fogStart, fogEnd, fogDensity;
             public Env(Light sun, ShadowMap sm, IEnumerable<Light> others)
@@ -197,7 +237,7 @@ namespace MiniUnity
                 {
                     hasSun = true;
                     L = -(sun.transform.rotation * Vector3.forward).normalized;
-                    lightCol = Lin(sun);   // GraphicsSettings.lightsUseLinearIntensity = false: scale in gamma, then linearize
+                    lightCol = Lin(sun);
                     shadowStrength = sun.shadowStrength;
                 }
                 sky = RenderSettings.ambientSkyColor.linear; equator = RenderSettings.ambientEquatorColor.linear; ground = RenderSettings.ambientGroundColor.linear;
@@ -251,6 +291,17 @@ namespace MiniUnity
             /// skybox it is black (MINIUNITY_SPECGI=k substitutes k × the ambient).</summary>
             public static float SpecularScale = float.TryParse(Environment.GetEnvironmentVariable("MINIUNITY_SPECGI"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f) ? f : 0f;
             public Color SpecularGI(Vector3 r, float perceptualRoughness) => skybox != null ? skybox.Specular(r, perceptualRoughness) * reflI : SpecularScale > 0 ? Ambient(r) * SpecularScale : Color.black;
+            public Color ApplyFog(Color col, float viewDepth)
+            {
+                if (!fog) return col;
+                float f = fogMode switch
+                {
+                    FogMode.Linear => Mathf.Clamp01((fogEnd - viewDepth) / Mathf.Max(1e-4f, fogEnd - fogStart)),
+                    FogMode.Exponential => Mathf.Clamp01(Mathf.Exp(-fogDensity * viewDepth)),
+                    _ => Mathf.Clamp01(Mathf.Exp(-(fogDensity * viewDepth) * (fogDensity * viewDepth))),
+                };
+                return Color.Lerp(fogCol, col, f);
+            }
             /// <summary>ShadeSH9: irradiance / π for normal n.</summary>
             public Color Ambient(Vector3 n)
             {
@@ -422,6 +473,15 @@ namespace MiniUnity
                     scratch.albedo = albedo; scratch.smooth = smooth; scratch.metal = metal; scratch.emission = emission; scratch.receive = receive && d.receive;
                     return Shade(scratch, env, P, N, view.camPos, 0, viewDepth);
                 },
+                mainLight = (P, N, receive) =>
+                {
+                    if (!env.hasSun) return (false, Vector3.up, Color.black, 1);
+                    float nl0 = Vector3.Dot(N, env.L), atten = 1;
+                    if (env.shadow != null && receive && d.receive && nl0 > 0) atten = 1 - env.shadowStrength * (1 - env.shadow.Sample(P, N, nl0, view.camPos));
+                    return (true, env.L, env.lightCol, atten);
+                },
+                ambient = n => env.Ambient(n),
+                fog = (c, viewDepth) => env.ApplyFog(c, viewDepth),
             };
             var M = d.M; var invT = M.inverse.transpose;
             var uv0 = mesh.m_UV[0]; var cols = mesh.m_C; var tans = mesh.m_T; var nrms = mesh.m_N;
@@ -694,17 +754,7 @@ namespace MiniUnity
             col += surfaceReduction * new Color(gSpec.r * Fl.r, gSpec.g * Fl.g, gSpec.b * Fl.b);
             col += m.emission;
             if (m.rounded) col += m.rim * rim * m.rimStrength;
-            if (e.fog)
-            {
-                float f = e.fogMode switch
-                {
-                    FogMode.Linear => Mathf.Clamp01((e.fogEnd - viewDepth) / Mathf.Max(1e-4f, e.fogEnd - e.fogStart)),
-                    FogMode.Exponential => Mathf.Clamp01(Mathf.Exp(-e.fogDensity * viewDepth)),
-                    _ => Mathf.Clamp01(Mathf.Exp(-(e.fogDensity * viewDepth) * (e.fogDensity * viewDepth))),
-                };
-                col = Color.Lerp(e.fogCol, col, f);
-            }
-            return col;
+            return e.ApplyFog(col, viewDepth);
         }
         static float Pow5(float x) { float x2 = x * x; return x2 * x2 * x; }
 

@@ -14,11 +14,13 @@ namespace UnityEngine
     {
         public PhysicMaterial() { m_Name = "DynamicMaterial"; }
         public PhysicMaterial(string name) { m_Name = name; }
-        public float bounciness { get => NFloat("bounciness", 0); set => NSetF("bounciness", value); }
-        public float dynamicFriction { get => NFloat("dynamicFriction", 0.6f); set => NSetF("dynamicFriction", value); }
-        public float staticFriction { get => NFloat("staticFriction", 0.6f); set => NSetF("staticFriction", value); }
-        public PhysicMaterialCombine frictionCombine { get => (PhysicMaterialCombine)NInt("frictionCombine"); set => NSetI("frictionCombine", (int)value); }
-        public PhysicMaterialCombine bounceCombine { get => (PhysicMaterialCombine)NInt("bounceCombine"); set => NSetI("bounceCombine", (int)value); }
+        // files saved by Unity 6 (PhysicsMaterial) prefix the fields: m_DynamicFriction, m_StaticFriction, m_Bounciness, m_*Combine
+        string K(string name) => NGet(name) == null && NGet("m_" + char.ToUpperInvariant(name[0]) + name.Substring(1)) != null ? "m_" + char.ToUpperInvariant(name[0]) + name.Substring(1) : name;
+        public float bounciness { get => NFloat(K("bounciness"), 0); set => NSetF(K("bounciness"), value); }
+        public float dynamicFriction { get => NFloat(K("dynamicFriction"), 0.6f); set => NSetF(K("dynamicFriction"), value); }
+        public float staticFriction { get => NFloat(K("staticFriction"), 0.6f); set => NSetF(K("staticFriction"), value); }
+        public PhysicMaterialCombine frictionCombine { get => (PhysicMaterialCombine)NInt(K("frictionCombine")); set => NSetI(K("frictionCombine"), (int)value); }
+        public PhysicMaterialCombine bounceCombine { get => (PhysicMaterialCombine)NInt(K("bounceCombine")); set => NSetI(K("bounceCombine"), (int)value); }
         public float bouncyness { get => bounciness; set => bounciness = value; }
     }
 
@@ -157,7 +159,7 @@ namespace UnityEngine
             if (m_Cached) return;
             m_Cached = true;
             PhysicsWorld.EnsureSettings();
-            m_MassCache = NFloat("m_Mass", 1); m_DragCache = NFloat("m_Drag"); m_AngularDragCache = NFloat("m_AngularDrag", 0.05f);
+            m_MassCache = NFloat("m_Mass", 1); m_DragCache = NFloat(DragKey); m_AngularDragCache = NFloat(AngularDragKey, 0.05f);
             m_UseGravityCache = NBool("m_UseGravity", true); m_IsKinematicCache = NBool("m_IsKinematic");
             m_InterpolationCache = (RigidbodyInterpolation)NInt("m_Interpolate"); m_ConstraintsCache = (RigidbodyConstraints)NInt("m_Constraints");
             m_CollisionModeCache = (CollisionDetectionMode)NInt("m_CollisionDetection");
@@ -177,8 +179,11 @@ namespace UnityEngine
 
         public Vector3 velocity { get => B?.V ?? Vector3.zero; set { var b = B; if (b != null && !m_IsKinematicCache) { b.V = value; PhysicsWorld.Wake(b); } } }
         public Vector3 angularVelocity { get => B?.W ?? Vector3.zero; set { var b = B; if (b != null && !m_IsKinematicCache) { b.W = value; PhysicsWorld.Wake(b); } } }
-        public float drag { get { CacheProps(); return m_DragCache; } set { CacheProps(); m_DragCache = value; NSetF("m_Drag", value); } }
-        public float angularDrag { get { CacheProps(); return m_AngularDragCache; } set { CacheProps(); m_AngularDragCache = value; NSetF("m_AngularDrag", value); } }
+        public float drag { get { CacheProps(); return m_DragCache; } set { CacheProps(); m_DragCache = value; NSetF(DragKey, value); } }
+        public float angularDrag { get { CacheProps(); return m_AngularDragCache; } set { CacheProps(); m_AngularDragCache = value; NSetF(AngularDragKey, value); } }
+        // files saved by Unity 6 name drag / angular drag m_LinearDamping / m_AngularDamping
+        string DragKey => NGet("m_LinearDamping") != null ? "m_LinearDamping" : "m_Drag";
+        string AngularDragKey => NGet("m_AngularDamping") != null ? "m_AngularDamping" : "m_AngularDrag";
         public float mass { get { CacheProps(); return m_MassCache; } set { CacheProps(); m_MassCache = Math.Max(value, 1e-7f); NSetF("m_Mass", m_MassCache); var b = PhysicsWorld.BodyOf(this); if (b != null) { b.Mass = m_MassCache; b.InvMass = 1 / m_MassCache; } } }
         public void SetDensity(float density)
         {

@@ -80,10 +80,34 @@ namespace MiniUnity
         /// <summary>Standard (BRDF1_Unity_PBS) lighting for a linear albedo; emission is added; shadows when receive is set.</summary>
         public Color Standard(Color albedoLinear, float smoothness, float metallic, Color emissionLinear, bool receiveShadows, in FragmentInput f)
             => standard(albedoLinear, smoothness, metallic, emissionLinear, receiveShadows, f.worldPos, f.normal, f.viewDepth);
+        internal System.Func<Vector3, Vector3, bool, (bool has, Vector3 dir, Color color, float atten)> mainLight;
+        internal System.Func<Vector3, Color> ambient;
+        internal System.Func<Color, float, Color> fog;
+        /// <summary>The main directional light: direction towards it, linear colour, shadow attenuation at the fragment (1 = lit).</summary>
+        public bool MainLight(in FragmentInput f, bool receiveShadows, out Vector3 dir, out Color color, out float shadowAtten)
+        {
+            var r = mainLight(f.worldPos, f.normal, receiveShadows); dir = r.dir; color = r.color; shadowAtten = r.atten; return r.has;
+        }
+        /// <summary>Ambient irradiance (ShadeSH9) for a normal.</summary>
+        public Color Ambient(Vector3 normal) => ambient(normal);
+        /// <summary>Scene fog applied to a lit colour.</summary>
+        public Color Fog(Color c, in FragmentInput f) => fog(c, f.viewDepth);
     }
 
     public abstract class WorldShader
     {
+        /// <summary>The material's shader reads _BaseColor (URP and SRP-era custom shaders) rather than _Color: a material moved
+        /// between shaders keeps a stale _Color, so only the built-in families below go by _Color.</summary>
+        internal static bool UsesBaseColor(Material m)
+        {
+            if (m == null) return false;
+            string n = UIRenderer.ShaderName(m.shader) ?? "";
+            if (n.Length == 0) return true;   // shader not in the project (e.g. a URP shader without the package)
+            foreach (var p in BuiltinColorShaders) if (n == p || n.StartsWith(p + "/", System.StringComparison.Ordinal) || n.StartsWith(p + " (", System.StringComparison.Ordinal)) return false;
+            return true;
+        }
+        static readonly string[] BuiltinColorShaders = { "Standard", "Legacy Shaders", "Unlit", "Mobile", "Particles", "Sprites", "UI", "Nature", "Skybox", "Autodesk Interactive", "Hidden", "TextMeshPro" };
+
         public enum RenderQueue { Opaque, AlphaTest, Transparent }
         /// <summary>Where the draw goes: opaque (depth write), alpha test (depth write, fragments may be discarded) or transparent
         /// (alpha blended back to front, no depth write).</summary>
@@ -165,7 +189,7 @@ namespace MiniUnity
                 // URP-style materials (Lit / Simple Lit and custom shaders drawn as Standard) name albedo, tint and smoothness
                 // _BaseMap, _BaseColor and _Smoothness
                 bool urp = m.Texture("_MainTex") == null && m.Texture("_BaseMap") != null;
-                bool baseColor = urp || (m.material != null && !m.material.HasProperty("_Color") && m.material.HasProperty("_BaseColor"));
+                bool baseColor = urp || (m.material != null && m.material.HasProperty("_BaseColor") && (!m.material.HasProperty("_Color") || UsesBaseColor(m.material)));
                 m.state = new S
                 {
                     albedo = m.Sampler(urp ? "_BaseMap" : "_MainTex"), bump = m.Sampler("_BumpMap"), st = m.ST(urp ? "_BaseMap" : "_MainTex"),
@@ -198,8 +222,51 @@ namespace MiniUnity
             }
         }
 
-        internal static void Register(Dictionary<string, WorldShader> d)
+        /// <summary>Toony Colors Pro 2 (URP / Hybrid shaders it generates): ramp between _SColor and _HColor from N·L with
+        /// _RampThreshold / _RampSmoothing (and _BandsCount bands when set), × _BaseColor (× _BaseMap) × light, plus ambient.
+        /// Rim, outlines, matcap and the stylised specular are not drawn.</summary>
+        public sealed class ToonyColors : WorldShader
         {
+            sealed class S { public TexSampler map; public Vector4 st; public Color baseColor, h, sh; public float threshold, smoothing, bands, cutoff; public bool cutout; }
+            public override bool CastsShadows(ShaderInputs m) => true;
+            public override RenderQueue Queue(ShaderInputs m) => m.Float("_RenderingMode", 0) >= 2 ? RenderQueue.Transparent : m.Keyword("_ALPHATEST_ON") ? RenderQueue.AlphaTest : RenderQueue.Opaque;
+            public override void Prepare(ShaderInputs m)
+            {
+                bool baseMap = m.material != null && m.material.HasProperty("_BaseMap");
+                m.state = new S
+                {
+                    map = m.Sampler(baseMap ? "_BaseMap" : "_MainTex"), st = m.ST(baseMap ? "_BaseMap" : "_MainTex"),
+                    baseColor = m.material != null && m.material.HasProperty("_BaseColor") ? m.ColorLinear("_BaseColor", Color.white) : m.ColorLinear("_Color", Color.white),
+                    h = m.ColorLinear("_HColor", new Color(.75f, .75f, .75f)), sh = m.ColorLinear("_SColor", new Color(.2f, .2f, .2f)),
+                    threshold = m.Float("_RampThreshold", .5f), smoothing = Mathf.Max(1e-3f, m.Float("_RampSmoothing", .5f)),
+                    bands = m.material != null && m.material.HasProperty("_BandsCount") ? Mathf.Max(1, m.Float("_BandsCount", 4)) : 0,
+                    cutoff = m.Float("_Cutoff", .5f), cutout = m.Keyword("_ALPHATEST_ON"),
+                };
+            }
+            public override bool Fragment(ShaderInputs m, in FragmentInput f, out Color c)
+            {
+                var s = (S)m.state;
+                var albedo = s.baseColor * SampleTex(s.map, s.st, f.uv);
+                if (s.cutout && albedo.a < s.cutoff) { c = default; return false; }
+                c = albedo * f.lighting.Ambient(f.normal);
+                if (f.lighting.MainLight(f, true, out var L, out var lc, out float atten))
+                {
+                    float ndl = Mathf.Max(0, Vector3.Dot(f.normal, L));
+                    float ramp = Mathf.SmoothStep(0, 1, Mathf.Clamp01((ndl - (s.threshold - s.smoothing * .5f)) / s.smoothing));
+                    if (s.bands > 1) ramp = Mathf.Round(ramp * s.bands) / s.bands;
+                    ramp *= atten;
+                    var tint = Color.Lerp(s.sh, s.h, ramp);
+                    c += new Color(albedo.r * tint.r * lc.r, albedo.g * tint.g * lc.g, albedo.b * tint.b * lc.b);
+                }
+                c = f.lighting.Fog(c, f);
+                c.a = albedo.a;
+                return true;
+            }
+        }
+
+        internal static void Register(Dictionary<string, WorldShader> d, Dictionary<string, WorldShader> prefixes)
+        {
+            prefixes["Toony Colors Pro 2/"] = new ToonyColors();
             d["Unlit/Color"] = new UnlitColor();
             d["Unlit/Texture"] = new UnlitTexture(WorldShader.RenderQueue.Opaque);
             d["Unlit/Transparent"] = new UnlitTexture(WorldShader.RenderQueue.Transparent);

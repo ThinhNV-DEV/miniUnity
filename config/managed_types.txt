@@ -54,3 +54,5 @@ CoreModule UnityEngine.SceneManagement.LoadSceneParameters
 CoreModule UnityEngine.SceneManagement.CreateSceneParameters
 CoreModule UnityEngine.RenderTextureDescriptor
 CoreModule UnityEngine.Rendering.RenderTargetIdentifier
+CoreModule UnityEngine.Rendering.SubMeshDescriptor
+CoreModule UnityEngine.Rendering.VertexAttributeDescriptor
