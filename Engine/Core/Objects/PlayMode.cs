@@ -51,6 +51,7 @@ namespace MiniUnity
         public static void Reset()
         {
             IsPlaying = false; Time = UnscaledTime = FixedTime = 0; Frame = 0; TimeScale = 1;
+            RemoveSyncContext();
             ResetRender();
             Input.Clear(); routines.Clear(); byHandle.Clear(); invokes.Clear(); started.Clear(); Log.Clear(); Exceptions.Clear(); pendingDestroy.Clear();
             Physics3D.PhysicsWorld.Reset();
@@ -119,6 +120,7 @@ namespace MiniUnity
         {
             IsPlaying = true;
             Time = UnscaledTime = FixedTime = 0; Frame = 0;
+            InstallSyncContext();   // awaited Tasks resume on the main thread, as under UnitySynchronizationContext
             // [RuntimeInitializeOnLoadMethod] before the first scene wakes up (UniTask's PlayerLoopHelper, VContainer, …)
             foreach (var lt in new[] { RuntimeInitializeLoadType.SubsystemRegistration, RuntimeInitializeLoadType.AfterAssembliesLoaded,
                          RuntimeInitializeLoadType.BeforeSplashScreen, RuntimeInitializeLoadType.BeforeSceneLoad }) RunInitializeOnLoad(lt);
@@ -250,6 +252,7 @@ namespace MiniUnity
                                 || (r.Wait is WaitForSeconds && Time >= r.Until) || (r.Wait is CustomYieldInstruction cy && !SafeKeepWaiting(cy))
                                 || (r.Wait is Coroutine co && (!byHandle.TryGetValue(co, out var other) || other.Done)) || (r.Wait is AsyncOperation ao && ao.isDone));
             RunInvokes();
+            s_Sync?.Exec();   // Update.ScriptRunDelayedTasks: Task continuations posted to the main thread
             foreach (var d in Directors().ToList())   // Update.DirectorUpdate: playing timelines advance and evaluate
             {
                 try { d.PlayerLoopTick(DeltaTime, UnscaledDeltaTime); }
