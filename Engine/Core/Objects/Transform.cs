@@ -59,7 +59,26 @@ namespace UnityEngine
                 return m_Parent != null ? m_Parent.localToWorldMatrix * m : m;
             }
         }
-        public Matrix4x4 worldToLocalMatrix => localToWorldMatrix.inverse;
+        public Matrix4x4 worldToLocalMatrix => HasZeroScale() ? WorldToLocalSafe() : localToWorldMatrix.inverse;
+
+        // A zero scale axis (a 2D sprite scaled (1, 1, 0)) makes localToWorldMatrix singular. Unity inverts level by level with
+        // InverseSafe scale (1/0 → 0), so children placed with transform.position still land on the other axes.
+        bool HasZeroScale()
+        {
+            for (var t = this; t != null; t = t.m_Parent)
+            {
+                var s = t.EffScale;
+                if (Math.Abs(s.x) < 1e-5f || Math.Abs(s.y) < 1e-5f || Math.Abs(s.z) < 1e-5f) return true;
+            }
+            return false;
+        }
+        Matrix4x4 WorldToLocalSafe()
+        {
+            if (!Driven(out var pos, out var rot, out var s)) { pos = localPosition; rot = m_LocalRotation; s = m_LocalScale; }
+            static float Inv(float v) => Math.Abs(v) < 1e-5f ? 0 : 1 / v;
+            var inv = Matrix4x4.Scale(new Vector3(Inv(s.x), Inv(s.y), Inv(s.z))) * Matrix4x4.Rotate(Quaternion.Inverse(rot)) * Matrix4x4.Translate(-pos);
+            return m_Parent != null ? inv * m_Parent.WorldToLocalSafe() : inv;
+        }
 
         public Vector3 position
         {
