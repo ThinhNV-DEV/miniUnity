@@ -66,6 +66,9 @@ namespace UnityEngine
         public static void DrawLine(Vector3 start, Vector3 end, Color color, float duration) { }
         public static void DrawRay(Vector3 start, Vector3 dir) { }
         public static void DrawRay(Vector3 start, Vector3 dir, Color color) { }
+        public static void DrawLine(Vector3 start, Vector3 end, Color color, float duration, bool depthTest) { }
+        public static void DrawRay(Vector3 start, Vector3 dir, Color color, float duration) { }
+        public static void DrawRay(Vector3 start, Vector3 dir, Color color, float duration, bool depthTest) { }
         public static void Break() { }
         public static void ClearDeveloperConsole() { }
         public static bool isDebugBuild => true;

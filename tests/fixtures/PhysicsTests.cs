@@ -62,6 +62,27 @@ public class PhysicsTests
         Assert.IsTrue(rb.IsSleeping(), "sleeping after settling");
     }
 
+    class TriggerCounter : MonoBehaviour
+    {
+        public int Enters, Exits;
+        void OnTriggerEnter(Collider other) => Enters++;
+        void OnTriggerExit(Collider other) => Exits++;
+    }
+
+    [UnityTest] public IEnumerator TogglingIsKinematicRefiresTriggers()
+    {
+        var zone = GameObject.CreatePrimitive(PrimitiveType.Cube); zone.transform.position = new Vector3(40, 0, 0);
+        zone.GetComponent<Collider>().isTrigger = true;
+        var counter = zone.AddComponent<TriggerCounter>();
+        var rb = Ball(new Vector3(40, 0, 0)); rb.useGravity = false;
+        yield return Fixed(3);
+        Assert.AreEqual(1, counter.Enters);
+        rb.isKinematic = true;   // PhysX re-filters the actor's pairs: lost, then found again while still overlapping
+        yield return Fixed(3);
+        Assert.AreEqual(1, counter.Exits);
+        Assert.AreEqual(2, counter.Enters);
+    }
+
     [UnityTest] public IEnumerator SleepingBallWakesWhenItsSupportIsTeleportedAway()
     {
         var support = Box(new Vector3(0, 0.5f, 0), Vector3.one);

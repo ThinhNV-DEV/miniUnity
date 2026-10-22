@@ -319,7 +319,9 @@ namespace MiniUnity.Agent
                 {
                     if (cur is not YMap m) return;
                     if (last) { m[k] = val; return; }
-                    if (m[k] == null) m[k] = parts[i + 1] is int || parts[i + 1] is "#size" ? new YSeq() : new YMap();
+                    bool arrayNext = parts[i + 1] is int || parts[i + 1] is "#size";
+                    // an empty primitive array is written as an empty hex string (`_indices: `): grown by the modification, it is a sequence
+                    if (m[k] == null || arrayNext && m[k] is YScalar empty && string.IsNullOrEmpty(empty.Value)) m[k] = arrayNext ? new YSeq() : new YMap();
                     cur = m[k];
                 }
                 else

@@ -196,7 +196,7 @@ namespace UnityEngine
         public bool isKinematic
         {
             get { CacheProps(); return m_IsKinematicCache; }
-            set { CacheProps(); if (m_IsKinematicCache == value) return; m_IsKinematicCache = value; NSetB("m_IsKinematic", value); var b = PhysicsWorld.BodyOf(this); if (b != null) { if (value) { b.V = b.W = Vector3.zero; b.Sleeping = false; } else PhysicsWorld.Wake(b); } }
+            set { CacheProps(); if (m_IsKinematicCache == value) return; m_IsKinematicCache = value; NSetB("m_IsKinematic", value); var b = PhysicsWorld.BodyOf(this); if (b != null) { if (value) { b.V = b.W = Vector3.zero; b.Sleeping = false; } else PhysicsWorld.Wake(b); PhysicsWorld.RefilterTriggers(b); } }
         }
         public bool freezeRotation
         {

@@ -228,6 +228,13 @@ namespace MiniUnity.Physics3D
             foreach (var k in triggerPairs.Where(k => k.Item1 == s || k.Item2 == s).ToList()) { pendingTriggerExit.Add(k); triggerPairs.Remove(k); }
         }
 
+        /// <summary>PhysX re-filters an actor's pairs when its kinematic flag changes: its trigger pairs are lost and found again
+        /// (OnTriggerExit now, OnTriggerEnter on the next step while the shapes still overlap).</summary>
+        internal static void RefilterTriggers(Body b)
+        {
+            foreach (var k in triggerPairs.Where(k => k.Item1.Body == b || k.Item2.Body == b).ToList()) { pendingTriggerExit.Add(k); triggerPairs.Remove(k); }
+        }
+
         static readonly List<Pair> pendingExit = new();
         static readonly List<(Shape, Shape)> pendingTriggerExit = new();
 
