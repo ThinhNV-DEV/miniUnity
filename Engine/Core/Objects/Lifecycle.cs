@@ -40,7 +40,12 @@ namespace MiniUnity
             if (m == null) return;
             if (Trace) Console.Error.WriteLine($"[life] {name} {o.GetType().Name} '{SafeName(o)}'");
             try { m.Invoke(o, null); }
-            catch (TargetInvocationException e) { throw new Exception($"{o.GetType().Name}.{name} threw: {e.InnerException?.Message}", e.InnerException); }
+            catch (TargetInvocationException e)
+            {
+                // in play mode Unity logs an exception from Awake / OnEnable / … and goes on: SetActive(true) still returns to its caller
+                if (Play.IsPlaying) { Play.Report(e.InnerException ?? e, $"{o.GetType().Name}.{name}"); return; }
+                throw new Exception($"{o.GetType().Name}.{name} threw: {e.InnerException?.Message}", e.InnerException);
+            }
         }
         /// <summary>OnDisable only follows an OnEnable, as in Unity: a behaviour that disables itself in Awake gets neither.</summary>
         internal static bool EnableState(MonoBehaviour mb, string name)

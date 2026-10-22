@@ -3,6 +3,7 @@
 // software renderer uses (UIRenderer.DrawParticles: billboards in the transparent queue with sprites, sorted by sorting layer /
 // order, clamped to maxParticleSize).
 using System;
+using System.Linq;
 using MiniUnity.Yaml;
 
 namespace UnityEngine
@@ -73,6 +74,7 @@ namespace UnityEngine
         public SizeOverLifetimeModule sizeOverLifetime => new SizeOverLifetimeModule(this);
         public RotationOverLifetimeModule rotationOverLifetime => new RotationOverLifetimeModule(this);
         public VelocityOverLifetimeModule velocityOverLifetime => new VelocityOverLifetimeModule(this);
+        public SubEmittersModule subEmitters => new SubEmittersModule(this);
 
         static float Rand(State s) => s.Random01();
 
@@ -240,6 +242,24 @@ namespace UnityEngine
             public bool textureAlphaAffectsParticles { get => M.textureAlphaAffectsParticles; set => M.textureAlphaAffectsParticles = value; }
             public bool textureBilinearFiltering { get => M.textureBilinearFiltering; set => M.textureBilinearFiltering = value; }
             public int textureUVChannel { get => M.textureUVChannel; set => M.textureUVChannel = value; }
+        }
+
+        /// <summary>The sub emitters as serialized (SubModule): queried by tools such as UIParticle; MiniUnity does not spawn their particles.</summary>
+        public partial struct SubEmittersModule
+        {
+            internal ParticleSystem m_ParticleSystem;
+            internal SubEmittersModule(ParticleSystem ps) { m_ParticleSystem = ps; }
+            MiniUnity.Yaml.YMap Entry(int i) => (m_ParticleSystem.NGet("SubModule.subEmitters") as MiniUnity.Yaml.YSeq)?.Items.ElementAtOrDefault(i) as MiniUnity.Yaml.YMap;
+            public bool enabled { get => m_ParticleSystem.NBool("SubModule.enabled"); set => m_ParticleSystem.NSetB("SubModule.enabled", value); }
+            public int subEmittersCount => (m_ParticleSystem.NGet("SubModule.subEmitters") as MiniUnity.Yaml.YSeq)?.Items.Count ?? 0;
+            public ParticleSystem GetSubEmitterSystem(int index)
+            {
+                if (Entry(index)?["emitter"] is not MiniUnity.Yaml.YRef r) return null;
+                return (r.Raw ? MiniUnity.AssetLoader.ResolveExternal(r) : r.Target) as ParticleSystem;
+            }
+            public ParticleSystemSubEmitterType GetSubEmitterType(int index) => (ParticleSystemSubEmitterType)MiniUnity.Serializer.Int(Entry(index)?["type"], 0);
+            public ParticleSystemSubEmitterProperties GetSubEmitterProperties(int index) => (ParticleSystemSubEmitterProperties)MiniUnity.Serializer.Int(Entry(index)?["properties"], 0);
+            public float GetSubEmitterEmitProbability(int index) => Entry(index)?["emitProbability"] is MiniUnity.Yaml.YScalar s && s.Value.Length > 0 ? s.F : 1;
         }
 
         public partial struct ColorOverLifetimeModule
