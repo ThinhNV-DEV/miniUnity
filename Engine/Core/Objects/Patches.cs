@@ -163,5 +163,7 @@ namespace UnityEngine.Rendering
     {
         // kInvalidSortingGroupID in the native SortingGroup manager (20-bit ids); RaycastResult compares against it
         internal static int invalidSortingGroupID => (1 << 20) - 1;
+        public int sortingOrder { get => NInt("m_SortingOrder"); set => NSetI("m_SortingOrder", value); }
+        public int sortingLayerID { get => NInt("m_SortingLayerID"); set => NSetI("m_SortingLayerID", value); }
     }
 }

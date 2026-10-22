@@ -135,33 +135,43 @@ namespace MiniUnity
             WorldRenderer.Render(cam, view);
             // transparent queue: sprites and camera canvases sorted together like Unity (sorting layer, order in layer,
             // then back to front by distance along the view axis)
-            var queue = new List<(int layer, int order, float dist, int seq, Renderer sprite, Canvas canvas)>();
+            var queue = new List<(SortKey[] key, Renderer sprite, Canvas canvas)>();
             int seq = 0;
             var fwd = cam.transform.forward;
+            float Dist(Vector3 p) => cam.orthographic ? Vector3.Dot(p - cam.transform.position, fwd) : (p - cam.transform.position).magnitude;
+            var groupIds = new Dictionary<UnityEngine.Rendering.SortingGroup, int>();
+            // a renderer inside SortingGroups sorts as part of its outermost group, then group by group down to itself
+            SortKey[] Key(Renderer r, float dist)
+            {
+                var chain = new List<SortKey> { new SortKey(r.NInt("m_SortingLayer"), r.sortingOrder, dist, seq++) };
+                for (var t = r.transform; t != null; t = t.m_Parent)
+                    if (t.gameObject.GetComponent<UnityEngine.Rendering.SortingGroup>() is UnityEngine.Rendering.SortingGroup g && g.enabled)
+                    {
+                        if (!groupIds.TryGetValue(g, out var id)) groupIds[g] = id = groupIds.Count;
+                        chain.Insert(0, new SortKey(g.NInt("m_SortingLayer"), g.sortingOrder, Dist(t.position), (1L << 40) + id));
+                    }
+                return chain.ToArray();
+            }
             foreach (var sr in ObjectRegistry.SceneObjects(typeof(SpriteRenderer), false).Cast<SpriteRenderer>())
             {
                 if (!sr.enabled || !sr.gameObject.activeInHierarchy || (cam.cullingMask & (1 << sr.gameObject.layer)) == 0 || sr.sprite == null) continue;
-                float dist = cam.orthographic ? Vector3.Dot(sr.transform.position - cam.transform.position, fwd) : (sr.transform.position - cam.transform.position).magnitude;
-                queue.Add((sr.NInt("m_SortingLayer"), sr.sortingOrder, dist, seq++, sr, null));
+                queue.Add((Key(sr, Dist(sr.transform.position)), sr, null));
             }
             foreach (var tr in ObjectRegistry.SceneObjects(typeof(UnityEngine.Tilemaps.TilemapRenderer), false).Cast<UnityEngine.Tilemaps.TilemapRenderer>())
             {
                 if (!tr.enabled || !tr.gameObject.activeInHierarchy || (cam.cullingMask & (1 << tr.gameObject.layer)) == 0 || tr.GetComponent<UnityEngine.Tilemaps.Tilemap>() == null) continue;
-                float dist = cam.orthographic ? Vector3.Dot(tr.transform.position - cam.transform.position, fwd) : (tr.transform.position - cam.transform.position).magnitude;
-                queue.Add((tr.NInt("m_SortingLayer"), tr.sortingOrder, dist, seq++, tr, null));
+                queue.Add((Key(tr, Dist(tr.transform.position)), tr, null));
             }
             foreach (var pr in ObjectRegistry.SceneObjects(typeof(ParticleSystemRenderer), false).Cast<ParticleSystemRenderer>())
             {
                 if (!pr.enabled || !pr.gameObject.activeInHierarchy || (cam.cullingMask & (1 << pr.gameObject.layer)) == 0) continue;
                 var ps = pr.GetComponent<ParticleSystem>();
                 if (ps == null || ps.particleCount == 0) continue;
-                float dist = cam.orthographic ? Vector3.Dot(pr.transform.position - cam.transform.position, fwd) : (pr.transform.position - cam.transform.position).magnitude;
-                queue.Add((pr.NInt("m_SortingLayer"), pr.sortingOrder, dist + pr.sortingFudge, seq++, pr, null));
+                queue.Add((Key(pr, Dist(pr.transform.position) + pr.sortingFudge), pr, null));
             }
             foreach (var c in canvases)
-                queue.Add((c.NInt("m_SortingLayer"), c.sortingOrder, c.renderMode == RenderMode.ScreenSpaceCamera ? c.planeDistance : Vector3.Dot(c.transform.position - cam.transform.position, fwd), seq++, null, c));
-            queue.Sort((a, b) => a.layer != b.layer ? a.layer.CompareTo(b.layer) : a.order != b.order ? a.order.CompareTo(b.order)
-                : a.dist != b.dist ? b.dist.CompareTo(a.dist) : a.seq.CompareTo(b.seq));
+                queue.Add((new[] { new SortKey(c.NInt("m_SortingLayer"), c.sortingOrder, c.renderMode == RenderMode.ScreenSpaceCamera ? c.planeDistance : Dist(c.transform.position), seq++) }, null, c));
+            queue.Sort((a, b) => SortKey.Compare(a.key, b.key));
             foreach (var q in queue)
                 if (q.sprite is SpriteRenderer sr) DrawSprite(sr, view);
                 else if (q.sprite is UnityEngine.Tilemaps.TilemapRenderer tmr) DrawTilemap(tmr, view);
@@ -210,6 +220,20 @@ namespace MiniUnity
         }
 
         // ------------------------------------------------------------------ SpriteRenderer (Sprites/Default)
+        /// <summary>One level of the transparent queue order: sorting layer, order in layer, then back to front, then a stable tie.</summary>
+        readonly struct SortKey
+        {
+            readonly int m_Layer, m_Order; readonly float m_Dist; readonly long m_Tie;
+            public SortKey(int layer, int order, float dist, long tie) { m_Layer = layer; m_Order = order; m_Dist = dist; m_Tie = tie; }
+            int CompareTo(in SortKey o) => m_Layer != o.m_Layer ? m_Layer.CompareTo(o.m_Layer) : m_Order != o.m_Order ? m_Order.CompareTo(o.m_Order)
+                : m_Dist != o.m_Dist ? o.m_Dist.CompareTo(m_Dist) : m_Tie.CompareTo(o.m_Tie);
+            public static int Compare(SortKey[] a, SortKey[] b)
+            {
+                for (int i = 0; i < Math.Min(a.Length, b.Length); i++) { int c = a[i].CompareTo(b[i]); if (c != 0) return c; }
+                return a.Length.CompareTo(b.Length);
+            }
+        }
+
         static void DrawSprite(SpriteRenderer sr, View view)
         {
             var sp = sr.sprite; var tex = sp.m_Texture;
