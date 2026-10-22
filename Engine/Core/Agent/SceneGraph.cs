@@ -76,9 +76,22 @@ namespace MiniUnity.Agent
             if (sourceCache.TryGetValue(guid, out var g)) return g;
             var a = AssetDb.ByGuid(guid);
             if (a == null || depth > 12) return null;
-            g = Build(UFile.Load(a.Path), depth + 1);
+            var file = UFile.IsYaml(AssetIndex.Abs(a.Path)) ? UFile.Load(a.Path) : ModelFile(a.Path);
+            if (file == null) return null;
+            g = Build(file, depth + 1);
             sourceCache[guid] = g;
             return g;
+        }
+
+        /// <summary>A model (.fbx …) as the source of a prefab instance: Unity treats it as a prefab whose objects are the import
+        /// result, so its hierarchy is written out as YAML documents that keep the imported objects' file ids.</summary>
+        static UFile ModelFile(string path)
+        {
+            var la = AssetLoader.Load(path);
+            if (la?.Main is not UnityEngine.GameObject root) return null;
+            var keep = new Dictionary<UnityEngine.Object, long>();
+            foreach (var (id, o) in la.Objects) keep[o] = id;
+            return UFile.FromDocs(path, YamlReader.ReadDocs(new SceneWriter(root, keep).Write(), path));
         }
         public static void ClearCache() => sourceCache.Clear();
 

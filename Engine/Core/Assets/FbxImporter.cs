@@ -159,13 +159,16 @@ namespace MiniUnity
             }
 
             // register the GameObjects and components (the root first: the asset's main object)
+            // without an id table in the .meta (Unity 2019.3+) the root's objects have the same file ids in every model
+            long RootId(int cls) => cls switch { 1 => 919132149155446097, 4 => -8679921383154817045, 23 => -7511558181221131132, _ => 0 };
             void Register(GameObject go)
             {
-                add(Id(1, go.m_Name), go, go == root);
+                long Of(int cls) => go == root && ids.Count == 0 && RootId(cls) is long r && r != 0 && used.Add(r) ? r : Id(cls, go.m_Name);
+                add(Of(1), go, go == root);
                 foreach (var c in go.m_Components)
                 {
                     int cls = c switch { Transform => 4, MeshFilter => 33, MeshRenderer => 23, _ => 0 };
-                    if (cls != 0) add(Id(cls, go.m_Name), c, false);
+                    if (cls != 0) add(Of(cls), c, false);
                 }
                 foreach (var ch in go.m_Transform.m_Children) Register(ch.gameObject);
             }

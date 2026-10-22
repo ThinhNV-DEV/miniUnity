@@ -208,6 +208,7 @@ namespace UnityEngine
         public bool didStart => MiniUnity.Play.IsPlaying && m_Awoken;
         public bool didAwake => m_Awoken;
         internal bool m_Awoken;
+        internal bool m_EnableSent;   // OnEnable received and not yet followed by OnDisable
         public System.Threading.CancellationToken destroyCancellationToken => default;
         public Coroutine StartCoroutine(System.Collections.IEnumerator routine)
         {

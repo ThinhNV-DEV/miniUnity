@@ -35,11 +35,19 @@ namespace MiniUnity
 
         public static void Invoke(Object o, string name)
         {
+            if (o is MonoBehaviour mb && !EnableState(mb, name)) return;
             var m = FindMethod(o.GetType(), name);
             if (m == null) return;
             if (Trace) Console.Error.WriteLine($"[life] {name} {o.GetType().Name} '{SafeName(o)}'");
             try { m.Invoke(o, null); }
             catch (TargetInvocationException e) { throw new Exception($"{o.GetType().Name}.{name} threw: {e.InnerException?.Message}", e.InnerException); }
+        }
+        /// <summary>OnDisable only follows an OnEnable, as in Unity: a behaviour that disables itself in Awake gets neither.</summary>
+        internal static bool EnableState(MonoBehaviour mb, string name)
+        {
+            if (name == "OnEnable") mb.m_EnableSent = true;
+            else if (name == "OnDisable") { if (!mb.m_EnableSent) return false; mb.m_EnableSent = false; }
+            return true;
         }
         static string SafeName(Object o) { try { return o is Component c ? c.m_GameObject?.m_Name : o.m_Name; } catch { return "?"; } }
 

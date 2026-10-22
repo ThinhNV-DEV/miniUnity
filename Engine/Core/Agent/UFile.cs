@@ -35,6 +35,14 @@ namespace MiniUnity.Agent
             return f;
         }
 
+        /// <summary>A read-only view of documents that are not a file of their own (a model's import result).</summary>
+        public static UFile FromDocs(string rel, List<YDoc> docs)
+        {
+            var f = new UFile { Rel = Ua.Rel(rel), Docs = docs };
+            foreach (var d in docs) f.byId[d.FileId] = d;
+            return f;
+        }
+
         public static UFile New(string rel)
         {
             var f = new UFile { Rel = Ua.Rel(rel), Dirty = true };

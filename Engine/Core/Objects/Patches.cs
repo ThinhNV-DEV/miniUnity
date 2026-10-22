@@ -167,3 +167,13 @@ namespace UnityEngine.Rendering
         public int sortingLayerID { get => NInt("m_SortingLayerID"); set => NSetI("m_SortingLayerID", value); }
     }
 }
+
+namespace UnityEngine.Serialization
+{
+    public partial class FormerlySerializedAsAttribute
+    {
+        readonly string m_oldName;
+        public FormerlySerializedAsAttribute(string oldName) { m_oldName = oldName; }
+        public string oldName => m_oldName;
+    }
+}

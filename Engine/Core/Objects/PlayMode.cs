@@ -96,6 +96,7 @@ namespace MiniUnity
         /// <summary>Call a message on a behaviour; exceptions are logged (Unity keeps running) and collected.</summary>
         public static object Call(MonoBehaviour mb, string name)
         {
+            if (!Lifecycle.EnableState(mb, name)) return null;
             var m = Method(mb.GetType(), name);
             if (m == null) return null;
             try
