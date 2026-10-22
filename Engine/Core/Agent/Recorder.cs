@@ -121,10 +121,10 @@ namespace MiniUnity
             }
 
             // ---------------------------------------------------------------- game audio (AudioSources played during the run)
-            string gameWav = outFile + ".game.wav";
-            Audio.AudioSystem.MixDown(gameWav, Rate);
-            AddWav(gameWav, mix);
-            File.Delete(gameWav);
+            // float buffers straight from the mixer: a sum over full scale reaches the limiter instead of being clipped flat in 16 bits
+            var (gameL, gameR, _, _) = Audio.AudioSystem.MixBuffers(Rate);
+            for (int i = 0; i < Math.Min(gameL.Length, mix.Length / 2); i++) { mix[i * 2] += gameL[i]; mix[i * 2 + 1] += gameR[i]; }
+            Declick(mix);
             string wav = outFile + ".wav";
             WriteWav(wav, mix);
             var mux = StartFfmpeg($"-y -loglevel error -i \"{videoOnly}\" -i \"{wav}\" -c:v copy -af alimiter=limit=0.89:level=false -c:a aac -b:a 192k -shortest \"{outFile}\"");
@@ -284,29 +284,23 @@ namespace MiniUnity
             return Mathf.Clamp01(w);
         }
 
-        static void AddWav(string path, float[] mix)
-        {
-            if (!File.Exists(path)) return;
-            var data = Audio.AudioDecode.DecodeWav(path);
-            if (!Audio.AudioDecode.WavInfo(path, out int ch, out int rate, out _, out _, out _, out _) || data == null) return;
-            int frames = data.Length / Math.Max(1, ch);
-            for (int i = 0; i < mix.Length / 2; i++)
-            {
-                double src = (double)i * rate / Rate;
-                int p = (int)src; if (p >= frames) break;
-                mix[i * 2] += data[p * ch];
-                mix[i * 2 + 1] += data[p * ch + (ch > 1 ? 1 : 0)];
-            }
-        }
-
+        /// <summary>32-bit float stereo WAV: the mix keeps its headroom until ffmpeg's limiter (16-bit samples clipped it flat).</summary>
         static void WriteWav(string path, float[] mix)
         {
             using var w = new BinaryWriter(File.Create(path));
-            int bytes = mix.Length * 2;
+            int bytes = mix.Length * 4;
             w.Write("RIFF".ToCharArray()); w.Write(36 + bytes); w.Write("WAVEfmt ".ToCharArray());
-            w.Write(16); w.Write((short)1); w.Write((short)2); w.Write(Rate); w.Write(Rate * 4); w.Write((short)4); w.Write((short)16);
+            w.Write(16); w.Write((short)3); w.Write((short)2); w.Write(Rate); w.Write(Rate * 8); w.Write((short)8); w.Write((short)32);
             w.Write("data".ToCharArray()); w.Write(bytes);
-            foreach (var s in mix) w.Write((short)Math.Clamp((int)Math.Round(s * 32767f), -32768, 32767));
+            foreach (var s in mix) w.Write(s);
+        }
+
+        /// <summary>A 5 ms fade-in at the cut where the recording starts: audio already playing there (a clip entered mid-way with
+        /// --from, music at full level on the first frame) would otherwise begin with a pop.</summary>
+        static void Declick(float[] mix)
+        {
+            int n = Math.Min(mix.Length / 2, Rate * 5 / 1000);
+            for (int i = 0; i < n; i++) { float g = (float)i / n; mix[i * 2] *= g; mix[i * 2 + 1] *= g; }
         }
     }
 }

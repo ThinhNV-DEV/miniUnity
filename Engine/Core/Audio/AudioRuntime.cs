@@ -390,6 +390,26 @@ namespace MiniUnity.Audio
         /// <summary>Render everything played so far to a 16-bit stereo WAV (gains / pitch per frame, linear interpolation).</summary>
         public static (int voices, double seconds, float peak) MixDown(string path, int rate = 0)
         {
+            var (L, R, used, peak) = MixBuffers(rate);
+            rate = rate > 0 ? rate : OutputSampleRate;
+            int total = L.Length;
+            using var fs = File.Create(path);
+            using var w = new BinaryWriter(fs);
+            int dataLen = total * 4;
+            w.Write("RIFF".ToCharArray()); w.Write(36 + dataLen); w.Write("WAVE".ToCharArray());
+            w.Write("fmt ".ToCharArray()); w.Write(16); w.Write((short)1); w.Write((short)2); w.Write(rate); w.Write(rate * 4); w.Write((short)4); w.Write((short)16);
+            w.Write("data".ToCharArray()); w.Write(dataLen);
+            for (int i = 0; i < total; i++)
+            {
+                w.Write((short)Math.Clamp((int)Math.Round(L[i] * 32767), -32768, 32767));
+                w.Write((short)Math.Clamp((int)Math.Round(R[i] * 32767), -32768, 32767));
+            }
+            return (used, total / (double)rate, peak);
+        }
+
+        /// <summary>Everything played so far as float buffers (no clipping: a sum above 1 is kept for the caller's limiter).</summary>
+        public static (float[] L, float[] R, int voices, float peak) MixBuffers(int rate = 0)
+        {
             rate = rate > 0 ? rate : OutputSampleRate;
             int total = (int)Math.Ceiling(DspTime * rate);
             var L = new float[total]; var R = new float[total];
@@ -448,18 +468,7 @@ namespace MiniUnity.Audio
             ListenerChain(L, R, rate);
             float peak = 0;
             for (int i = 0; i < total; i++) peak = Math.Max(peak, Math.Max(Math.Abs(L[i]), Math.Abs(R[i])));
-            using var fs = File.Create(path);
-            using var w = new BinaryWriter(fs);
-            int dataLen = total * 4;
-            w.Write("RIFF".ToCharArray()); w.Write(36 + dataLen); w.Write("WAVE".ToCharArray());
-            w.Write("fmt ".ToCharArray()); w.Write(16); w.Write((short)1); w.Write((short)2); w.Write(rate); w.Write(rate * 4); w.Write((short)4); w.Write((short)16);
-            w.Write("data".ToCharArray()); w.Write(dataLen);
-            for (int i = 0; i < total; i++)
-            {
-                w.Write((short)Math.Clamp((int)Math.Round(L[i] * 32767), -32768, 32767));
-                w.Write((short)Math.Clamp((int)Math.Round(R[i] * 32767), -32768, 32767));
-            }
-            return (used, total / (double)rate, peak);
+            return (L, R, used, peak);
         }
     }
 
