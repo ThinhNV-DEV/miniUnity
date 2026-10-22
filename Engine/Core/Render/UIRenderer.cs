@@ -126,7 +126,7 @@ namespace MiniUnity
                             (c.renderMode == RenderMode.WorldSpace && (cam.cullingMask & (1 << c.gameObject.layer)) != 0))
                 .OrderBy(c => c.sortingOrder).ThenByDescending(c => c.planeDistance).ToList();
 
-            var V = Matrix4x4.Scale(new Vector3(1, 1, -1)) * cam.transform.worldToLocalMatrix;
+            var V = cam.worldToCameraMatrix;   // ignores the camera Transform's scale, as in Unity
             var P = cam.projectionMatrix;
             var view = new View { W = W, H = H, P = P, VP = P * V, camPos = cam.transform.position, target = target };
             if (Environment.GetEnvironmentVariable("MINIUNITY_RENDER_DEBUG") == "1")
@@ -539,7 +539,7 @@ namespace MiniUnity
         /// <summary>Skybox clear: every pixel gets the sky's radiance along its view ray (through the far plane), sun disk included.</summary>
         static void DrawSky(Camera cam, RenderTexture target, int W, int H, Sky sky)
         {
-            var V = Matrix4x4.Scale(new Vector3(1, 1, -1)) * cam.transform.worldToLocalMatrix;
+            var V = cam.worldToCameraMatrix;   // ignores the camera Transform's scale, as in Unity
             var inv = (cam.projectionMatrix * V).inverse;
             var camPos = cam.transform.position;
             var c = target.m_SurfColor; bool srgb = target.m_SRGB;
