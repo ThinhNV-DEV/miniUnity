@@ -17,9 +17,7 @@ public class PrefabArrayModificationEditorTests
 
     [Test] public void SizeAndDataModificationsGrowAnEmptyPrimitiveList()
     {
-        AssetDatabase.ImportAsset("Assets/PlayTests/IndexListHolder.cs");   // the runner copies fixture scripts without a .meta
-        var script = AssetDatabase.AssetPathToGUID("Assets/PlayTests/IndexListHolder.cs");
-        Assert.IsNotEmpty(script);
+        const string script = "3c5e7a9b1d2f4e6a8b0c2d4e6f8a1b3c";   // IndexListHolder.cs.meta
         const string basePath = "Assets/PlayTests/IndexBase.prefab", instPath = "Assets/PlayTests/IndexHolder.prefab";
         File.WriteAllText(basePath, $@"%YAML 1.1
 %TAG !u! tag:unity3d.com,2011:

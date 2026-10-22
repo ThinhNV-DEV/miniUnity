@@ -55,7 +55,8 @@ def make_project():
     os.makedirs(editor_tests)
     for f in os.listdir(FIX):
         # *EditorTests.cs use UnityEditor (AssetDatabase, PrefabUtility): an Editor-only test assembly, as in a Unity project
-        if f.endswith(".cs"): shutil.copy2(os.path.join(FIX, f), editor_tests if f.endswith("EditorTests.cs") else tests)
+        if f.endswith(".cs") or f.endswith(".cs.meta"):   # a script some test refers to by guid ships its .meta
+            shutil.copy2(os.path.join(FIX, f), editor_tests if f.split(".")[0].endswith("EditorTests") else tests)
     json.dump({"name": "Fixtures", "references": ["UnityEngine.TestRunner", "UnityEditor.TestRunner", "Unity.Timeline", "UnityEngine.UI", "Unity.Postprocessing.Runtime"], "optionalUnityReferences": ["TestAssemblies"]},
               open(os.path.join(tests, "Fixtures.asmdef"), "w"))
     json.dump({"name": "Fixtures.Editor", "references": ["UnityEngine.TestRunner", "UnityEditor.TestRunner"], "includePlatforms": ["Editor"], "optionalUnityReferences": ["TestAssemblies"]},
