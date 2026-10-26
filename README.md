@@ -76,6 +76,19 @@ bằng DLL của chính Editor đó). Khác với 2022.3:
   (Input System, HDRP, VFX Graph) là UnityEngine.UI cộng UnityEditor.UI khi compile cho Editor. `?path=` của URL git được
   URL-decode như Package Manager (`?path=/DOTween%20Pro`).
 - Compile định nghĩa `ENABLE_PROFILER` như Editor thật, và mỗi lỗi chỉ báo một lần như csc.
+- uGUI 2.0: panel UI Toolkit theo chữ ký 6000 (`Versioned/6000/UIToolkitPanels.cs`). TMP trong uGUI 2.0 để scale
+  SDF ở `uv0.w` thay vì `uv1.y`; renderer đọc được cả hai.
+
+`play` cũng làm thêm những việc Unity làm khi vào play mode, ở mọi phiên bản:
+- **Script trong DLL plugin:** MonoBehaviour / ScriptableObject trong DLL được tham chiếu bằng guid của DLL cộng
+  `fileID = MD4("s\0\0\0" + namespace + tên)`. Trước đây component như vậy bị bỏ âm thầm.
+- **Khởi tạo:** chạy `[InitializeOnLoad]` / `[InitializeOnLoadMethod]` như sau domain reload; lỗi của bước này báo
+  riêng trong `editorInitializeOnLoad`. Chạy `[RuntimeInitializeOnLoadMethod]` theo thứ tự load type quanh scene đầu.
+- **SynchronizationContext:** cài một context như `UnitySynchronizationContext`.
+- **Material:** đọc được property map ở dạng mapping YAML (AssetRipper xuất như vậy).
+
+Trên một bản xuất toàn DLL của Kitty Knots, scene chạy được, UI và chữ TMP hiển thị đúng; lỗi còn lại là IL hỏng của
+chính bản phục hồi.
 
 Chưa kiểm lại trên 2022.3 sau các thay đổi này (container chỉ có Editor 6000.3). `tests/ua_selftest.py` chạy với Editor
 6000.3: 123 ok, 2 lỗi đều ở bước compile project mẫu, vì project đó nhắm 2022.3.62f2 và cần package của host project.
