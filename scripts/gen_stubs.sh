@@ -20,7 +20,8 @@ CFG="$MU_CACHE/stubs.cfg"
   cat config/math_types.txt config/managed_types.txt | awk '{t=$2; sub(/`.*/,"",t); print "-"t}'
 } > "$CFG"
 MODS=""
-while read -r m; do [ -n "$m" ] && MODS="$MODS $M/UnityEngine.$m.dll"; done < config/engine_modules.txt
+# a module this Editor does not have (RenderAs2DModule is Unity 6 only) is skipped
+while read -r m; do [ -n "$m" ] && [ -f "$M/UnityEngine.$m.dll" ] && MODS="$MODS $M/UnityEngine.$m.dll"; done < config/engine_modules.txt
 while read -r m; do [ -n "$m" ] && MODS="$MODS $M/$m.dll"; done < config/editor_modules.txt
 rm -rf Engine/Generated; mkdir -p Engine/Generated
 python3 tools/unity_defines.py "$VERSION" props Engine/Generated/UnityVersion.props

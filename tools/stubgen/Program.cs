@@ -381,15 +381,17 @@ static class Program
             return;
         }
         if (explicitOf != null) { sb.AppendLine($"{MI}{RetT(m)} {T(explicitOf)}.{Esc(m.Name)}{tps}({ps}) => throw null;"); return; }
+        // a no-op type's operators answer default like its other members (ProfilerCategory → ushort in a static initialiser)
+        string opBody = IsNoop(m.ContainingType) ? "default" : "throw null";
         if (m.MethodKind == MethodKind.UserDefinedOperator)
         {
             if (!Ops.TryGetValue(m.Name, out var op)) return;
-            sb.AppendLine($"{MI}public static {RetT(m)} operator {op}({ps}) => throw null;");
+            sb.AppendLine($"{MI}public static {RetT(m)} operator {op}({ps}) => {opBody};");
             return;
         }
         if (m.MethodKind == MethodKind.Conversion)
         {
-            sb.AppendLine($"{MI}public static {(m.Name == "op_Implicit" ? "implicit" : "explicit")} operator {T(m.ReturnType)}({ps}) => throw null;");
+            sb.AppendLine($"{MI}public static {(m.Name == "op_Implicit" ? "implicit" : "explicit")} operator {T(m.ReturnType)}({ps}) => {opBody};");
             return;
         }
         string mods = Mods(m);

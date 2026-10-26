@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System;
 using System.IO;
+using System.Linq;
 using MiniUnity.Yaml;
 using UnityEngine;
 
@@ -102,8 +103,19 @@ namespace MiniUnity
                     break;
                 }
                 case ".shader":
-                    Add(4800000, new Shader(), true);
+                {
+                    // Shader.name is the ShaderLab name ("TextMeshPro/Mobile/Distance Field"), which code compares, not the file name
+                    var sh = new Shader();
+                    try
+                    {
+                        var first = File.ReadLines(AssetIndex.Abs(la.Path)).FirstOrDefault(l => l.TrimStart().TrimStart('\uFEFF').StartsWith("Shader "));
+                        int a = first?.IndexOf('"') ?? -1, b = a >= 0 ? first.IndexOf('"', a + 1) : -1;
+                        if (b > a) sh.m_ShaderName = sh.m_Name = first.Substring(a + 1, b - a - 1);   // Object.name too, as in Unity
+                    }
+                    catch (IOException) { }
+                    Add(4800000, sh, true);
                     break;
+                }
                 case ".txt": case ".json": case ".md": case ".bytes": case ".csv": case ".xml": case ".html":
                 {
                     var ta = new TextAsset(File.ReadAllText(AssetIndex.Abs(la.Path)));

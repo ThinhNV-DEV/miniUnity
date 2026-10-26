@@ -2,23 +2,28 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using MiniUnity.Yaml;
 using UnityEngine;
 
 namespace MiniUnity
 {
-    /// <summary>MonoScript GUIDs: class name ⇄ .cs.meta guid (project scripts + package sources).</summary>
+    /// <summary>MonoScript GUIDs: class name ⇄ .cs.meta guid (project scripts + package sources), and a class compiled into a
+    /// plugin DLL ⇄ the DLL's guid + its file id (UnityFileId).</summary>
     public static class ScriptRegistry
     {
         public static List<string> ExtraScriptDirs = new();
         static Dictionary<string, List<(string guid, string path)>> byName;
         static Dictionary<string, Type> guidToType;
         static Dictionary<Type, string> typeToGuid;
+        // MonoBehaviours / ScriptableObjects compiled into plugin DLLs: (dll guid, file id) ⇄ type
+        static Dictionary<(string guid, long fileID), Type> dllScripts;
+        static Dictionary<Type, (string guid, long fileID)> dllScriptOf;
 
         static void Ensure()
         {
             if (byName != null) return;
-            byName = new(); guidToType = new(); typeToGuid = new();
+            byName = new(); guidToType = new(); typeToGuid = new(); dllScripts = new(); dllScriptOf = new();
             var dirs = new List<string> { Path.Combine(AssetIndex.Root, "Assets") };
             dirs.AddRange(ExtraScriptDirs);
             foreach (var d in dirs)
@@ -34,17 +39,36 @@ namespace MiniUnity
                     list.Add((guid, meta));
                 }
             }
+            var dllGuids = new Dictionary<Assembly, string>();
+            foreach (var kv in TypeCache.PluginAssemblies) if (MetaGuid(kv.Value + ".meta") is string g) dllGuids[kv.Key] = g;
             foreach (var t in TypeCache.AllTypes)
             {
                 if (!(typeof(MonoBehaviour).IsAssignableFrom(t) || typeof(ScriptableObject).IsAssignableFrom(t))) continue;
                 if (t.IsGenericTypeDefinition) continue;
+                if (TypeCache.PluginAssemblies.ContainsKey(t.Assembly))
+                {
+                    // a class in a DLL is never the class of a .cs script of the same name
+                    if (dllGuids.TryGetValue(t.Assembly, out var dg) && !t.IsNested)
+                    {
+                        var key = (dg, (long)UnityFileId.Of(t));
+                        dllScripts.TryAdd(key, t); dllScriptOf[t] = key;
+                    }
+                    continue;
+                }
                 if (!byName.TryGetValue(t.Name, out var cands)) continue;
                 var pick = cands.Count == 1 ? cands[0] : cands.OrderByDescending(c => Score(c.path, t)).First();
                 typeToGuid[t] = pick.guid;
                 if (!guidToType.TryGetValue(pick.guid, out var have) || (TypeCache.IsProjectType(t) && !TypeCache.IsProjectType(have))) guidToType[pick.guid] = t;
             }
         }
-        public static void Reset() { byName = null; guidToType = null; typeToGuid = null; }
+        public static void Reset() { byName = null; guidToType = null; typeToGuid = null; dllScripts = null; dllScriptOf = null; }
+
+        static string MetaGuid(string meta)
+        {
+            if (!File.Exists(meta)) return null;
+            foreach (var l in File.ReadLines(meta)) if (l.StartsWith("guid: ")) return l.Substring(6).Trim();
+            return null;
+        }
 
         static readonly Dictionary<string, string> sources = new();
 
@@ -80,7 +104,7 @@ namespace MiniUnity
             return s;
         }
 
-        public static bool KnownGuid(string guid) { Ensure(); return byName.Values.Any(l => l.Any(x => x.guid == guid)); }
+        public static bool KnownGuid(string guid) { Ensure(); return byName.Values.Any(l => l.Any(x => x.guid == guid)) || dllScripts.Keys.Any(k => k.guid == guid); }
         public static Type TypeOf(string guid) { Ensure(); return guid != null && guidToType.TryGetValue(guid, out var t) ? t : null; }
         public static string GuidOf(Type t) { Ensure(); return typeToGuid.TryGetValue(t, out var g) ? g : null; }
 
@@ -91,11 +115,18 @@ namespace MiniUnity
             [13312] = typeof(UnityEngine.Tilemaps.Tile),
         };
         public const string BuiltinScriptGuid = "0000000000000000e000000000000000";
-        public static Type TypeOf(string guid, long fileID) => guid == BuiltinScriptGuid ? (builtinScripts.TryGetValue(fileID, out var bt) ? bt : null) : TypeOf(guid);
+        public static Type TypeOf(string guid, long fileID)
+        {
+            if (guid == BuiltinScriptGuid) return builtinScripts.TryGetValue(fileID, out var bt) ? bt : null;
+            Ensure();
+            return guid != null && dllScripts.TryGetValue((guid, fileID), out var dt) ? dt : TypeOf(guid);
+        }
 
         public static YRef ScriptRef(Type t)
         {
             foreach (var kv in builtinScripts) if (kv.Value == t) return new YRef(kv.Key, BuiltinScriptGuid, 0);
+            Ensure();
+            if (dllScriptOf.TryGetValue(t, out var ds)) return new YRef(ds.fileID, ds.guid, 3);
             var g = GuidOf(t);
             if (g == null) { Debug.LogWarning("[MiniUnity] no MonoScript guid for " + t.FullName); return new YRef(0, null, 0); }
             return new YRef(11500000, g, 3);

@@ -103,7 +103,10 @@ namespace UnityEngineInternal.Input
         public static double currentTimeOffsetToRealtimeSinceStartup => 0;
 
         public static int AllocateDeviceId() => nextDeviceId++;
-        public static void SetPollingFrequency(float hertz) { }
+        static float s_PollingFrequency = 60f;
+        public static void SetPollingFrequency(float hertz) => s_PollingFrequency = hertz;
+        /// <summary>Unity 6.3 (the Input System reads it back under UNITY_INPUT_SYSTEM_PLATFORM_POLLING_FREQUENCY).</summary>
+        public static float GetPollingFrequency() => s_PollingFrequency;
         public static void SetUpdateMask(NativeInputUpdateType mask) => updateMask = mask;
         internal static ulong GetBackgroundEventBufferSize() => 0;
 

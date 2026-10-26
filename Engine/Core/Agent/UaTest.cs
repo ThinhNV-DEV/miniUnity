@@ -110,7 +110,7 @@ namespace MiniUnity.Agent
             Reg("play", "play <scene.unity> [--frames n | --seconds s] [--fps 60] [--watch Path/Comp.member,…] [--input Space@10,mouse0@5-8,Horizontal=1@20-40] [--max-logs n] [--audio-out mix.wav] [--screenshot out.png[@seconds,…] --size 1080x1920] [--call Path/Comp.Method@seconds,…] [--interactive [--serve port]]   run the scene in MiniUnity's player loop (physics, animation, audio timeline); screenshots render every camera with the software renderer; --interactive keeps the session open for JSON commands on stdin (step / input / hold / mouse / screenshot / watch / state / call / quit, replies on lines starting with \"@mu \") and --serve adds a browser viewer to play it", a =>
             {
                 var scene = Ua.Rel(a.P(0, "scene"));
-                var (m, build, _) = RuntimeHost.CompileAndLoad(a, x => !x.Editor);
+                var (m, build, runtimeAsms) = RuntimeHost.CompileAndLoad(a, x => !x.Editor);
                 if (build.Errors > 0) return new JsonObject { ["compiled"] = false, ["errors"] = build.Errors, ["hint"] = "fix compile errors first (ua compile)" };
                 ScriptRegistry.ExtraScriptDirs.AddRange(m.PackageDirs.Values);
                 ScriptRegistry.Reset();
@@ -120,11 +120,30 @@ namespace MiniUnity.Agent
                 var (width, height) = Ua.Size(a.O("size") ?? "1920x1080", "--size");
                 Play.FrameDelta = 1f / fps;
                 if (a.O("input") is string input) Play.Input.Parse(input);
-                RuntimeHost.LoadScene(scene).MakeOnly();
                 int frames = a.Has("seconds") ? (int)Math.Ceiling(Ua.Num(a.O("seconds"), "--seconds") / Play.FrameDelta) : a.I("frames", 60);
                 var sw = Stopwatch.StartNew();
                 MiniUnity.Screen.Width = width; MiniUnity.Screen.Height = height;   // before Awake/Start: games read Screen.width there
+                // the domain load the Editor has done before any play mode: [InitializeOnLoad] / [InitializeOnLoadMethod] of every
+                // loaded assembly. What it logs belongs to that load, not to the session, so it is reported apart and cleared.
+                PlayerSynchronizationContext.Install();   // the Editor's main thread has one from the start
+                bool captured = Play.CaptureLogs;
+                Play.CaptureLogs = true;
+                int editorInits = RuntimeInitialize.RunEditorInitializeOnLoad(TypeCache.ProjectAssemblies.ToList());
+                Play.CaptureLogs = captured;
+                var editorInitLog = Play.Log.Where(l => l.Type is "Exception" or "Error").Select(l => l.Message).ToList();
+                Play.Reset();
+                if (a.O("input") is string input2) Play.Input.Parse(input2);
+                // entering play mode: [RuntimeInitializeOnLoadMethod] of the runtime assemblies and plugin DLLs around the first scene
+                var initAsms = runtimeAsms.Concat(TypeCache.PluginAssemblies.Keys).ToList();
+                Play.IsPlaying = true;
+                int inits = RuntimeInitialize.Run(initAsms, RuntimeInitializeLoadType.SubsystemRegistration, RuntimeInitializeLoadType.AfterAssembliesLoaded,
+                    RuntimeInitializeLoadType.BeforeSplashScreen);
+                Play.IsPlaying = false;   // the scene loads as before: no behaviour is woken during the load itself
+                RuntimeHost.LoadScene(scene).MakeOnly();
+                Play.IsPlaying = true;
+                inits += RuntimeInitialize.Run(initAsms, RuntimeInitializeLoadType.BeforeSceneLoad);
                 Play.Begin();
+                inits += RuntimeInitialize.Run(initAsms, RuntimeInitializeLoadType.AfterSceneLoad);
                 // --screenshot file.png (end of the run) or file.png@1.5,3 (one file per time: file_1.5s.png); --call Obj/Comp.Method@t
                 var shots = new List<(int frame, string file)>();
                 var shotFiles = new JsonArray();
@@ -179,6 +198,9 @@ namespace MiniUnity.Agent
                 if (shotFiles.Count > 0) res["screenshots"] = shotFiles;
                 res["scene"] = scene; res["seconds"] = Math.Round(sw.Elapsed.TotalSeconds, 2);
                 res["objects"] = Play.SceneObjects().Count();
+                res["runtimeInitializeMethods"] = inits;
+                res["editorInitializeOnLoad"] = new JsonObject { ["count"] = editorInits, ["errors"] = editorInitLog.Count,
+                    ["first"] = Arr(editorInitLog.Distinct().Take(10), x => JsonValue.Create(x.Split('\n')[0])) };
                 if (a.O("watch") is string w) res["watch"] = new JsonObject(w.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => new KeyValuePair<string, JsonNode>(s, Watch(s.Trim()))));
                 if (MiniUnity.Audio.AudioSystem.Log.Count > 0)
                     res["audio"] = Arr(MiniUnity.Audio.AudioSystem.Log.Take(a.I("max-logs", 60) * 4), e => new JsonObject

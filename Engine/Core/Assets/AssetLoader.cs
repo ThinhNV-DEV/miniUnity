@@ -59,6 +59,17 @@ namespace MiniUnity
         // indexed on the first lookup that misses Assets/
         static Dictionary<string, string> pkgGuidToPath, pkgPathToGuid, packageDirs;
         static string pkgRoot;
+        static readonly List<string> resolvedPackageDirs = new();
+        /// <summary>The package folders the project resolves to (ProjectCompiler's package set), indexed after Packages/ and
+        /// Library/PackageCache: a core package lives in the Editor's BuiltInPackages (uGUI; URP, Core RP and Shader Graph from
+        /// Unity 6), so its assets - a pipeline asset, a volume profile, a default material - are found nowhere else.</summary>
+        public static void SetResolvedPackageDirs(IEnumerable<string> dirs)
+        {
+            var l = dirs.Where(Directory.Exists).Distinct().ToList();
+            if (l.SequenceEqual(resolvedPackageDirs)) return;
+            resolvedPackageDirs.Clear(); resolvedPackageDirs.AddRange(l);
+            pkgGuidToPath = null;
+        }
         static void EnsurePackages()
         {
             if (pkgGuidToPath != null && pkgRoot == Root) return;
@@ -66,6 +77,7 @@ namespace MiniUnity
             var dirs = new List<string>();
             foreach (var r in new[] { "Packages", "Library/PackageCache" })
                 if (Directory.Exists(Path.Combine(Root, r))) dirs.AddRange(Directory.GetDirectories(Path.Combine(Root, r)));
+            dirs.AddRange(resolvedPackageDirs);
             foreach (var dir in dirs)
             {
                 string name = Path.GetFileName(dir);
@@ -340,7 +352,7 @@ namespace MiniUnity
                     return isComponent ? null : Lifecycle.CreateScriptableObject(typeof(MissingScriptObject), false);
                 }
                 if (typeof(ScriptableObject).IsAssignableFrom(t)) return Lifecycle.CreateScriptableObject(t, false);
-                return (Object)Activator.CreateInstance(t, true);
+                return Lifecycle.CreateScriptInstance(t);
             }
             if (Serializer.TypeById.TryGetValue(d.ClassId, out var nt))
             {

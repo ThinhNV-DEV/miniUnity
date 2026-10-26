@@ -657,12 +657,15 @@ namespace MiniUnity
             public override void SetupFrame() { cr = ClipRect4; }
             public override void Vertex(in VertexIn v, Vector4 vPos, float[] o)
             {
-                float bold = v.uv1.y <= 0 ? 1 : 0;   // step(texcoord1.y, 0)
+                // TMP 3.0 (Unity 2022) packs the glyph's scale, negative for bold, into texcoord1.y; TMP in uGUI 2.0 (Unity 6) moved it
+                // to texcoord0.w and uses texcoord1 for the face texture mapping. A visible glyph always has a non-zero scale.
+                float sdfScale = v.uv0.w != 0 ? v.uv0.w : v.uv1.y;
+                float bold = sdfScale <= 0 ? 1 : 0;   // step(scale, 0)
                 var vert = new Vector3(v.pos.x + vox, v.pos.y + voy, v.pos.z);
                 if (vox != 0 || voy != 0) vPos = view.VP * model * new Vector4(vert.x, vert.y, vert.z, 1);
                 var pixelSize = PixelSize(vPos.w, scX, scY);
                 float scale = 1f / MathF.Sqrt(pixelSize.x * pixelSize.x + pixelSize.y * pixelSize.y);
-                scale *= MathF.Abs(v.uv1.y) * grad * (sharp + 1);
+                scale *= MathF.Abs(sdfScale) * grad * (sharp + 1);
                 if (view.P.m33 == 0)
                 {
                     // perspective: lerp(abs(scale) * (1 - _PerspectiveFilter), scale, abs(dot(worldNormal, normalize(WorldSpaceViewDir(vert)))))

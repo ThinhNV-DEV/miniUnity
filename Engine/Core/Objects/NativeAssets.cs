@@ -71,6 +71,15 @@ namespace UnityEngine
         {
             var sp = NGet("m_SavedProperties") as YMap;
             if (sp == null) { sp = new YMap().Add("serializedVersion", "3").Add("m_TexEnvs", new YSeq()).Add("m_Ints", new YSeq()).Add("m_Floats", new YSeq()).Add("m_Colors", new YSeq()); NSet("m_SavedProperties", sp); }
+            if (sp[name] is YMap flat)
+            {
+                // a property map written as one mapping (AssetRipper's exports; Unity reads it) instead of the sequence of
+                // single-entry mappings the Editor writes: taken into the Editor's form, which is also what gets written back
+                var seq = new YSeq();
+                foreach (var e in flat.Entries) seq.Items.Add(new YMap().Add(e.Key, e.Value));
+                sp[name] = seq;
+                return seq;
+            }
             if (sp[name] is not YSeq s) { s = new YSeq(); sp[name] = s; }
             return s;
         }
@@ -270,6 +279,12 @@ namespace UnityEngine
 
     public partial class Sprite
     {
+        // secondary textures (normal / mask maps a 2D renderer reads) are not imported: a sprite has none, which is what uGUI 2.0's
+        // Image asks every time it rebuilds
+        public int GetSecondaryTextureCount() => 0;
+        public int GetSecondaryTextures(SecondarySpriteTexture[] secondaryTexture) => 0;
+        internal Texture2D GetSecondaryTexture(int index) => null;
+
         internal Texture2D m_Texture;
         internal Rect m_Rect;
         internal Vector2 m_Pivot;

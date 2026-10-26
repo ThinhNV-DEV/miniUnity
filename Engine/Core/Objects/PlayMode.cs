@@ -208,6 +208,7 @@ namespace MiniUnity
             ResumeRoutines(r => r.Wait == null || (r.Wait is WaitForSeconds && Time >= r.Until) || (r.Wait is CustomYieldInstruction cy && !SafeKeepWaiting(cy))
                                 || (r.Wait is Coroutine co && (!byHandle.TryGetValue(co, out var other) || other.Done)) || (r.Wait is AsyncOperation ao && ao.isDone));
             RunInvokes();
+            PlayerSynchronizationContext.ExecuteTasks();   // Update.ScriptRunDelayedTasks: continuations posted to the main thread
             foreach (var d in Directors().ToList())   // Update.DirectorUpdate: playing timelines advance and evaluate
             {
                 try { d.PlayerLoopTick(DeltaTime, UnscaledDeltaTime); }

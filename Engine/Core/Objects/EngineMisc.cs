@@ -77,6 +77,8 @@ namespace UnityEngine
     {
         public static bool isPlaying => MiniUnity.Play.IsPlaying;
         public static bool isEditor => true;
+        /// <summary>The URL a WebGL page or a deep link opened the player with; the Editor has neither.</summary>
+        public static string absoluteURL => "";
         public static bool isBatchMode => true;
         public static bool isFocused => MiniUnity.Play.IsPlaying;   // the (virtual) Game view has focus while playing
         public static string dataPath => Path.Combine(AssetIndex.Root, "Assets").Replace('\\', '/');
@@ -343,6 +345,15 @@ namespace UnityEngine
         public static int height => (int)MiniUnity.Screen.Height;
         public static float dpi => 96;
         public static bool fullScreen { get => false; set { } }
+        static ScreenOrientation s_Orientation = ScreenOrientation.AutoRotation;
+        /// <summary>What a game sets is kept; until then (or under AutoRotation) the orientation follows the simulated screen's
+        /// aspect, as the Device Simulator reports it.</summary>
+        public static ScreenOrientation orientation
+        {
+            get => s_Orientation != ScreenOrientation.AutoRotation ? s_Orientation
+                 : MiniUnity.Screen.Height >= MiniUnity.Screen.Width ? ScreenOrientation.Portrait : ScreenOrientation.LandscapeLeft;
+            set => s_Orientation = value;
+        }
     }
 }
 

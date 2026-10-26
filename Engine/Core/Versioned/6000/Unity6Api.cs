@@ -41,3 +41,35 @@ namespace UnityEngine.TextCore.LowLevel
         public static FontEngineError LoadFontFace(string familyName, string styleName, float pointSize) => FontEngineError.Invalid_File;
     }
 }
+
+namespace UnityEngine.Rendering
+{
+    public partial class GraphicsSettings
+    {
+        // Unity 6: settings a render pipeline registers per type (URP's shader and texture resources). MiniUnity draws with its own
+        // software renderer and never runs a pipeline's render loop, so none is registered - Unity's answer for a pipeline without them.
+        public static T GetRenderPipelineSettings<T>() where T : class, IRenderPipelineGraphicsSettings => null;
+        public static bool TryGetRenderPipelineSettings<T>(out T settings) where T : class, IRenderPipelineGraphicsSettings { settings = null; return false; }
+    }
+}
+
+namespace UnityEngine.InputForUI
+{
+    internal static partial class EventProvider
+    {
+        // the Input System package installs itself as the UI event source from a [RuntimeInitializeOnLoadMethod]; MiniUnity feeds
+        // uGUI from its own input simulation, so the provider is kept, not run
+        static IEventProviderImpl s_Provider;
+        internal static void SetInputSystemProvider(IEventProviderImpl impl) => s_Provider = impl;
+        public static IEventProviderImpl provider => s_Provider;
+    }
+}
+
+namespace UnityEditor
+{
+    public partial class EditorUtility
+    {
+        // Unity 6.3 replaces InstanceIDToObject; an EntityId is the instance id here (Versioned/6000/EntityId.cs)
+        public static UnityEngine.Object EntityIdToObject(UnityEngine.EntityId entityId) => UnityEngine.Object.FindObjectFromInstanceID(entityId);
+    }
+}

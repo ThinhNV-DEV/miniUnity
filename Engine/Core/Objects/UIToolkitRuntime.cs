@@ -6,9 +6,8 @@ using System.Collections.Generic;
 
 namespace UnityEngine.UIElements
 {
-    internal static class UIElementsRuntimeUtility
+    internal static partial class UIElementsRuntimeUtility
     {
-        static readonly List<Panel> s_Panels = new();
 
         internal static Object activeEventSystem { get; private set; }
         internal static bool useDefaultEventSystem => activeEventSystem == null;
@@ -27,23 +26,11 @@ namespace UnityEngine.UIElements
             if (activeEventSystem == eventSystem) activeEventSystem = null;
         }
 
-        internal static List<Panel> GetSortedPlayerPanels() => s_Panels;
+        // GetSortedPlayerPanels and the panel classes: Versioned/<level>/UIToolkitPanels.cs (Unity 6 changed both)
 
         public static EventBase CreateEvent(Event systemEvent) => null;
 
-        internal static void Reset() { s_Panels.Clear(); activeEventSystem = null; onCreatePanel = null; }
-    }
-
-    internal class Panel
-    {
-        internal string name { get; set; }
-    }
-
-    internal abstract class BaseRuntimePanel : Panel
-    {
-        public GameObject selectableGameObject { get; set; }
-        public event Action destroyed;
-        internal void OnDestroyed() => destroyed?.Invoke();
+        internal static void Reset() { ClearPanels(); activeEventSystem = null; onCreatePanel = null; }
     }
 }
 

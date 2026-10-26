@@ -55,6 +55,17 @@ namespace UnityEngine
 
     public sealed partial class CanvasRenderer
     {
+        // secondary textures (a sprite's normal / mask maps): kept as the Image sets them, not drawn by the software renderer
+        string[] m_SecondaryNames = System.Array.Empty<string>(); Texture2D[] m_SecondaryTextures = System.Array.Empty<Texture2D>();
+        public int GetSecondaryTextureCount() => m_SecondaryTextures.Length;
+        public void SetSecondaryTextureCount(int size)
+        {
+            System.Array.Resize(ref m_SecondaryTextures, System.Math.Max(0, size)); System.Array.Resize(ref m_SecondaryNames, System.Math.Max(0, size));
+        }
+        public string GetSecondaryTextureName(int index) => m_SecondaryNames[index];
+        public Texture2D GetSecondaryTexture(int index) => m_SecondaryTextures[index];
+        public void SetSecondaryTexture(int index, string name, Texture2D texture) { m_SecondaryNames[index] = name; m_SecondaryTextures[index] = texture; }
+
         public CanvasRenderer() { }
         public bool cullTransparentMesh { get => NBool("m_CullTransparentMesh", true); set => NSetB("m_CullTransparentMesh", value); }
         // runtime-only render state (not serialized) – what Unity's native canvas keeps per renderer

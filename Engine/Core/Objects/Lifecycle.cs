@@ -54,10 +54,33 @@ namespace MiniUnity
             }
         }
 
+        /// <summary>A script object as Unity creates one. When its constructor (field initialisers included) throws, Unity logs the
+        /// exception and the object exists anyway, with whatever the deserialiser then writes into it - so one bad initialiser costs
+        /// that object's defaults, not the scene. Field initialisers run before the base constructor, so the engine's own
+        /// constructor is run on the uninitialised object here. Null when even that fails (a static constructor that throws).</summary>
+        public static Object CreateScriptInstance(Type t)
+        {
+            try { return (Object)Activator.CreateInstance(t, true); }
+            catch (TargetInvocationException e)
+            {
+                Debug.LogException(e.InnerException ?? e);
+                try
+                {
+                    var o = (Object)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(t);
+                    var engine = t;
+                    while (engine != null && engine.Assembly != typeof(Object).Assembly) engine = engine.BaseType;
+                    engine?.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null)?.Invoke(o, null);
+                    return o;
+                }
+                catch (Exception) { return null; }
+            }
+        }
+
         /// <summary>Create the component object and attach it (no callbacks).</summary>
         public static Component CreateComponentRaw(GameObject go, Type t)
         {
-            var c = (Component)Activator.CreateInstance(t, true);
+            var c = (Component)(typeof(MonoBehaviour).IsAssignableFrom(t) ? CreateScriptInstance(t) : Activator.CreateInstance(t, true));
+            if (c == null) return null;
             if (c is MonoBehaviour) Serializer.EnsureDefaults(c);
             c.m_GameObject = go;
             go.m_Components.Add(c);
@@ -137,7 +160,7 @@ namespace MiniUnity
 
         public static ScriptableObject CreateScriptableObject(Type t, bool callbacks)
         {
-            var so = (ScriptableObject)Activator.CreateInstance(t, true);
+            var so = (ScriptableObject)CreateScriptInstance(t) ?? (ScriptableObject)Activator.CreateInstance(typeof(MissingScriptObject), true);
             Serializer.EnsureDefaults(so);
             so.m_Name = "";
             if (callbacks)
@@ -288,6 +311,14 @@ namespace MiniUnity
         public static void AddHostAssembly(Assembly a) { if (!HostAssemblies.Contains(a)) HostAssemblies.Add(a); byName = null; }
         static IEnumerable<Type> EngineAndHostTypes => typeof(TypeCache).Assembly.GetTypes().Concat(HostAssemblies.SelectMany(SafeTypes));
         public static void AddProjectAssembly(Assembly a) { ProjectAssemblies.Add(a); byName = null; }
+        /// <summary>The project's precompiled plugin DLLs among <see cref="ProjectAssemblies"/>, with the DLL each was loaded from: a
+        /// MonoBehaviour in one is a script named by that DLL's guid and a file id (ScriptRegistry), not by a .cs.meta.</summary>
+        public static readonly Dictionary<Assembly, string> PluginAssemblies = new();
+        public static void AddPluginAssembly(Assembly a, string dll)
+        {
+            PluginAssemblies[a] = dll;
+            if (!ProjectAssemblies.Contains(a)) AddProjectAssembly(a);
+        }
         static IEnumerable<Type> SafeTypes(Assembly a)
         {
             try { return a.GetTypes(); }

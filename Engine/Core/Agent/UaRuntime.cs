@@ -174,6 +174,20 @@ namespace MiniUnity.Agent
                 res.Add(asm);
                 if (!TypeCache.ProjectAssemblies.Contains(asm)) TypeCache.AddProjectAssembly(asm);
             }
+            // auto-referenced plugin DLLs are loaded as Unity loads them: their MonoBehaviours are scripts a scene can name, and
+            // their [RuntimeInitializeOnLoadMethod]s run. A name the runtime itself provides (System.*) stays the runtime's.
+            foreach (var p in m.PluginDlls)
+            {
+                var name = Path.GetFileNameWithoutExtension(p);
+                if (projectDlls.TryGetValue(name, out var chosen) && chosen != p) continue;   // a compiled assembly of that name wins
+                try
+                {
+                    var asm = AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName(name));
+                    if (loaded.TryGetValue(name, out var mine) && mine == asm) TypeCache.AddPluginAssembly(asm, p);
+                }
+                catch (Exception e) when (e is FileNotFoundException or FileLoadException or BadImageFormatException) { Notes.Add($"plugin {name} not loaded: {e.Message}"); }
+            }
+            AssetIndex.SetResolvedPackageDirs(m.PackageDirs.Values);
             ScriptRegistry.Reset();
             return res;
         }

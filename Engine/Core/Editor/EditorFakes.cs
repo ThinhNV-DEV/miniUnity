@@ -217,6 +217,19 @@ namespace UnityEditor
         public static void ReleaseCachedFileHandles() { }
     }
 
+    public partial class BuildPipeline
+    {
+        // TextMesh Pro (uGUI 2.0) asks in Awake whether a player build is running; MiniUnity never builds one
+        public static bool isBuildingPlayer => false;
+    }
+
+    public sealed partial class EditorSettings
+    {
+        // every `ua play` is a fresh process, which is what a play mode with domain reload is: no Enter Play Mode Options
+        public static bool enterPlayModeOptionsEnabled { get => false; set { } }
+        public static EnterPlayModeOptions enterPlayModeOptions { get => EnterPlayModeOptions.None; set { } }
+    }
+
     public sealed partial class EditorUtility
     {
         public static void SetDirty(Object target)
