@@ -2,6 +2,7 @@
 // RenderSettings (stored per scene, written into the scene's RenderSettings document), GameObject.CreatePrimitive.
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using MiniUnity;
 using MiniUnity.Yaml;
 using UnityEngine.Rendering;
@@ -42,6 +43,18 @@ namespace UnityEngine
         public Material sharedMaterial { get => sharedMaterials.FirstOrDefault(); set => sharedMaterials = new[] { value }; }
         public Material material { get => sharedMaterial; set => sharedMaterial = value; }
         public Material[] materials { get => sharedMaterials; set => sharedMaterials = value; }
+        public void GetSharedMaterials(List<Material> m)
+        {
+            if (m == null) throw new ArgumentNullException(nameof(m));
+            m.Clear(); m.AddRange(sharedMaterials);
+        }
+        public void SetSharedMaterials(List<Material> materials)
+        {
+            if (materials == null) throw new ArgumentNullException(nameof(materials));
+            sharedMaterials = materials.ToArray();
+        }
+        public void GetMaterials(List<Material> m) => GetSharedMaterials(m);
+        public void SetMaterials(List<Material> materials) => SetSharedMaterials(materials);
         public int sortingOrder { get => NInt("m_SortingOrder"); set => NSetI("m_SortingOrder", value); }
         public Bounds bounds
         {
@@ -61,6 +74,11 @@ namespace UnityEngine
     }
 
     public sealed partial class MeshRenderer { public MeshRenderer() { } }
+
+    public partial class SkinnedMeshRenderer
+    {
+        public Mesh sharedMesh { get => NRef<Mesh>("m_Mesh"); set => NSetRef("m_Mesh", value); }
+    }
 
     public sealed partial class MeshFilter
     {
@@ -95,6 +113,8 @@ namespace UnityEngine
         }
         public static Light sun { get => S["m_Sun"] is YRef r ? r.Target as Light : null; set => Set("m_Sun", value == null ? new YRef(0, null, 0) : new YRef(value)); }
         public static float reflectionIntensity { get => F("m_ReflectionIntensity"); set => Set("m_ReflectionIntensity", YScalar.Of(value)); }
+        /// <summary>What a game assigns is kept and read back; nothing is baked, so until then the probe is zero.</summary>
+        public static UnityEngine.Rendering.SphericalHarmonicsL2 ambientProbe { get; set; }
     }
 
     public partial class GameObject

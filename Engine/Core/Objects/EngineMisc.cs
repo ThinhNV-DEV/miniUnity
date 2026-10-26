@@ -100,7 +100,12 @@ namespace UnityEngine
         public static event Application.LogCallback logMessageReceived { add { MiniUnity.Play.LogHandlers += value; } remove { MiniUnity.Play.LogHandlers -= value; } }
         public static event Application.LogCallback logMessageReceivedThreaded { add { MiniUnity.Play.LogHandlers += value; } remove { MiniUnity.Play.LogHandlers -= value; } }
         public static event Action quitting { add { } remove { } }
-        public static event Action<bool> focusChanged { add { } remove { } }
+        /// <summary>Like the Editor entering Play mode: the Game view takes focus as play begins and gives it up when play
+        /// ends. The Input System package keeps its own copy of the focus state and only updates it from this event, so a
+        /// no-op here leaves it unfocused and every pointer and keyboard event deferred to an editor update that never runs.</summary>
+        public static event Action<bool> focusChanged { add => s_FocusChanged += value; remove => s_FocusChanged -= value; }
+        static Action<bool> s_FocusChanged;
+        internal static void RaiseFocusChanged(bool focus) => s_FocusChanged?.Invoke(focus);
         public static event Func<bool> wantsToQuit { add { } remove { } }
         public static event Action onBeforeRender { add { } remove { } }
         public static void OpenURL(string url) { }
@@ -339,10 +344,24 @@ namespace UnityEngine
         static int? s_AA;
     }
 
+    /// <summary>Records which RectTransform properties a layout component drives, for the editor's Undo and inspector
+    /// greying. A player keeps nothing, and neither does a headless run.</summary>
+    public partial struct DrivenRectTransformTracker
+    {
+        internal static bool CanRecordModifications() => false;
+        public static void StopRecordingUndo() { }
+        public static void StartRecordingUndo() { }
+        public void Add(Object driver, RectTransform rectTransform, DrivenTransformProperties drivenProperties) { }
+        public void Clear(bool revertValues) { }
+        public void Clear() { }
+    }
+
     public sealed partial class Screen
     {
         public static int width => (int)MiniUnity.Screen.Width;
         public static int height => (int)MiniUnity.Screen.Height;
+        /// <summary>A desktop screen has no notch or rounded corners, so the safe area is the whole screen.</summary>
+        public static Rect safeArea => new Rect(0, 0, MiniUnity.Screen.Width, MiniUnity.Screen.Height);
         public static float dpi => 96;
         public static bool fullScreen { get => false; set { } }
         static ScreenOrientation s_Orientation = ScreenOrientation.AutoRotation;

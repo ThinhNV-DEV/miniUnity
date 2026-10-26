@@ -37,7 +37,16 @@ namespace UnityEngine
         public static Material GetDefaultCanvasMaterial() => BuiltinResources.DefaultUIMaterial;
         public static Material GetDefaultCanvasTextMaterial() => BuiltinResources.DefaultUIMaterial;
         public static Material GetETC1SupportedCanvasMaterial() => BuiltinResources.DefaultUIMaterial;
-        public static void ForceUpdateCanvases() { s_willRender?.Invoke(); }
+        public static void ForceUpdateCanvases() { RectTransform.SyncCanvasHierarchies(); s_willRender?.Invoke(); RectTransform.SyncCanvasHierarchies(); }
+        /// <summary>PostLateUpdate.PlayerUpdateCanvases: Unity runs the canvas update every frame, not only when pixels are
+        /// drawn, and uGUI's layout and graphic rebuilds (CanvasUpdateRegistry) hang off it.</summary>
+        internal static void PlayerUpdateCanvases()
+        {
+            RectTransform.SyncCanvasHierarchies();
+            s_preWillRender?.Invoke();
+            s_willRender?.Invoke();
+            RectTransform.SyncCanvasHierarchies();
+        }
         static WillRenderCanvases s_willRender, s_preWillRender;
         public static event WillRenderCanvases preWillRenderCanvases { add => s_preWillRender += value; remove => s_preWillRender -= value; }
         public static event WillRenderCanvases willRenderCanvases { add => s_willRender += value; remove => s_willRender -= value; }
@@ -79,8 +88,48 @@ namespace UnityEngine
         public bool hasMoved => false;
         public bool hasPopInstruction { get; set; }
         public bool hasRectClipping => m_RectClipping;
-        public int absoluteDepth => 0;
-        public int relativeDepth => 0;
+        /// <summary>Like the native canvas: the renderer's place in the depth-first order of its root canvas's hierarchy,
+        /// or -1 when it is not under an active canvas. GraphicRaycaster sorts hits by it, so a constant here hands a
+        /// click to whichever overlapping graphic the sort happens to put first - often a full-screen parent.</summary>
+        public int absoluteDepth => DepthIn(RootCanvasOf(transform));
+        public int relativeDepth
+        {
+            get
+            {
+                Canvas c = null;
+                for (var t = transform; t != null && c == null; t = t.parent) { var k = t.GetComponent<Canvas>(); if (k != null && k.enabled) c = k; }
+                return DepthIn(c);
+            }
+        }
+
+        static Canvas RootCanvasOf(Transform from)
+        {
+            Canvas root = null;
+            for (var t = from; t != null; t = t.parent) { var k = t.GetComponent<Canvas>(); if (k != null && k.enabled) root = k; }
+            return root;
+        }
+
+        static readonly Dictionary<Canvas, (int frame, int edits, Dictionary<CanvasRenderer, int> order)> s_DepthCache = new();
+
+        int DepthIn(Canvas canvas)
+        {
+            if (canvas == null || !gameObject.activeInHierarchy) return -1;
+            int frame = MiniUnity.Play.Frame, edits = s_SceneEdits;   // edit mode has no frames: hierarchy edits invalidate too
+            if (!s_DepthCache.TryGetValue(canvas, out var entry) || entry.frame != frame || entry.edits != edits || !entry.order.ContainsKey(this))
+            {
+                var order = new Dictionary<CanvasRenderer, int>();
+                void Walk(Transform t)
+                {
+                    if (!t.gameObject.activeSelf) return;
+                    var cr = t.GetComponent<CanvasRenderer>();
+                    if (cr != null) order[cr] = order.Count;
+                    for (int i = 0; i < t.m_Children.Count; i++) Walk(t.m_Children[i]);
+                }
+                Walk(canvas.transform);
+                s_DepthCache[canvas] = entry = (frame, edits, order);
+            }
+            return entry.order.TryGetValue(this, out int depth) ? depth : -1;
+        }
         public int materialCount { get => m_MaterialCount; set => m_MaterialCount = value; }
         public int popMaterialCount { get => m_PopMaterialCount; set => m_PopMaterialCount = value; }
         public Vector2 clippingSoftness { get; set; }

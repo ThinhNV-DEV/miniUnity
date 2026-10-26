@@ -50,6 +50,11 @@ namespace MiniUnity
 
         public static void Reset()
         {
+            if (IsPlaying)
+            {
+                try { UnityEngine.Application.RaiseFocusChanged(false); }
+                catch (Exception e) { Report(e, "Application.focusChanged"); }
+            }
             IsPlaying = false; Time = UnscaledTime = FixedTime = 0; Frame = 0; TimeScale = 1;
             ResetRender();
             Input.Clear(); routines.Clear(); byHandle.Clear(); invokes.Clear(); started.Clear(); Log.Clear(); Exceptions.Clear(); pendingDestroy.Clear();
@@ -119,6 +124,8 @@ namespace MiniUnity
         {
             IsPlaying = true;
             Time = UnscaledTime = FixedTime = 0; Frame = 0;
+            try { UnityEngine.Application.RaiseFocusChanged(true); }
+            catch (Exception e) { Report(e, "Application.focusChanged"); }
             // Awake (all), then OnEnable, in hierarchy order – MiniUnity's Lifecycle does both when an object becomes active
             foreach (var g in SceneObjects().ToList())
                 foreach (var c in g.m_Components.ToList())
@@ -219,6 +226,8 @@ namespace MiniUnity
             UnityEngine.ParticleSystem.TickAll(DeltaTime, UnscaledDeltaTime);   // PreLateUpdate.ParticleSystemBeginUpdateAll
             UnityEngine.LowLevel.PlayerLoop.RunPhase(typeof(UnityEngine.PlayerLoop.PreLateUpdate));
             foreach (var mb in Active()) Call(mb, "LateUpdate");
+            try { Canvas.PlayerUpdateCanvases(); }   // PostLateUpdate.PlayerUpdateCanvases: uGUI layout and graphic rebuilds
+            catch (Exception e) { Report(e, "Canvas.willRenderCanvases"); }
             RenderPhase();   // PostLateUpdate.FinishFrameRendering: camera callbacks and visibility (no pixels)
             ResumeRoutines(r => r.Wait is WaitForEndOfFrame);
             routines.RemoveAll(r => r.Done);

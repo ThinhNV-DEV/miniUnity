@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using MiniUnity;
 
 namespace UnityEngine
@@ -291,6 +292,36 @@ namespace UnityEngine
             m_LocalPositionRaw = ComputeLocalPosition();
             s_SceneEdits++;
         }
+
+        /// <summary>Canvas update (Canvas.ForceUpdateCanvases and the per-frame PlayerUpdateCanvases): every RectTransform
+        /// under a root canvas takes the position its anchors give in its parent's current rect, top down. A root canvas
+        /// is sized by its CanvasScaler only once the scaler has run, so what Awake laid out against the unscaled screen
+        /// would otherwise stay there - a top bar at the middle of the screen.</summary>
+        internal static void SyncCanvasHierarchies()
+        {
+            foreach (var c in ObjectRegistry.SceneObjects(typeof(Canvas), false).Cast<Canvas>().ToList())
+            {
+                if (c == null || c.m_Destroyed || !c.isRootCanvas) continue;
+                foreach (var child in c.transform.m_Children.ToList()) SyncDown(child);
+            }
+        }
+
+        static void SyncDown(Transform t)
+        {
+            if (!t.gameObject.activeSelf) return;
+            if (t is RectTransform rt && !rt.IsDrivenRootCanvas(out _))
+            {
+                var p = rt.ComputeLocalPosition();
+                if (p != rt.m_LocalPositionRaw) { rt.m_LocalPositionRaw = p; s_SceneEdits++; }
+                // a child stretched across a parent that was resized is resized too, and is told so, as in Unity
+                // (TextMeshPro re-wraps on it; a card laid out by a grid after its text was built keeps a one-word column otherwise)
+                var size = rt.rect.size;
+                if (rt.m_SyncedSize is Vector2 last && last != size) Lifecycle.RectDimensionsChanged(rt);
+                rt.m_SyncedSize = size;
+            }
+            foreach (var child in t.m_Children.ToList()) SyncDown(child);
+        }
+        Vector2? m_SyncedSize;
         internal override bool Driven(out Vector3 pos, out Quaternion rot, out Vector3 scale)
         {
             pos = default; rot = Quaternion.identity; scale = Vector3.one;

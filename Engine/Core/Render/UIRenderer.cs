@@ -188,7 +188,7 @@ namespace MiniUnity
         // ------------------------------------------------------------------ SpriteRenderer (Sprites/Default)
         static void DrawSprite(SpriteRenderer sr, View view)
         {
-            var sp = sr.sprite; var tex = sp.m_Texture;
+            var sp = sr.sprite; var tex = sp.Tex;
             if (tex == null) return;
             float ppu = Math.Max(1e-4f, sp.m_PPU);
             float x0 = -sp.m_Pivot.x / ppu, y0 = -sp.m_Pivot.y / ppu, x1 = x0 + sp.m_Rect.width / ppu, y1 = y0 + sp.m_Rect.height / ppu;
@@ -272,7 +272,7 @@ namespace MiniUnity
             var mat = tr.sharedMaterial;
             foreach (var (pos, cell) in tr.TilesInOrder(map))
             {
-                var sp = cell.sprite; var tex = sp?.m_Texture;
+                var sp = cell.sprite; var tex = sp?.Tex;
                 if (tex == null) continue;
                 float ppu = Math.Max(1e-4f, sp.m_PPU);
                 // the sprite's pivot sits on the tile anchor (cell centre by default)

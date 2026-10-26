@@ -277,8 +277,37 @@ namespace UnityEngine
         public void ReadPixels(Rect source, int destX, int destY, bool recalculateMipMaps) => ReadPixels(source, destX, destY);
     }
 
-    public partial class Sprite
+    public partial class Sprite : MiniUnity.INativeSync
     {
+        /// <summary>A Sprite saved as its own asset (class 213, how an extracted or atlas-unpacked project carries them)
+        /// keeps its rect, pivot, border and texture in the document rather than in a texture importer.</summary>
+        public void SyncFromNative()
+        {
+            if (m_Native == null) return;
+            if (NGet("m_Rect") is MiniUnity.Yaml.YMap r)
+                m_Rect = new Rect(MiniUnity.Serializer.F(r["x"]), MiniUnity.Serializer.F(r["y"]), MiniUnity.Serializer.F(r["width"]), MiniUnity.Serializer.F(r["height"]));
+            m_TextureRect = NGet("m_RD.textureRect") is MiniUnity.Yaml.YMap tr && MiniUnity.Serializer.F(tr["width"]) > 0
+                ? new Rect(MiniUnity.Serializer.F(tr["x"]), MiniUnity.Serializer.F(tr["y"]), MiniUnity.Serializer.F(tr["width"]), MiniUnity.Serializer.F(tr["height"]))
+                : null;
+            m_Pivot = Vector2.Scale(NVec2("m_Pivot"), m_Rect.size);
+            if (NGet("m_Border") is MiniUnity.Yaml.YMap b)
+                m_Border = new Vector4(MiniUnity.Serializer.F(b["x"]), MiniUnity.Serializer.F(b["y"]), MiniUnity.Serializer.F(b["z"]), MiniUnity.Serializer.F(b["w"]));
+            m_PPU = NFloat("m_PixelsToUnits", 100);
+            m_Texture = null;
+            m_TextureFromNative = true;   // resolved on first use, like every other reference in a native document
+        }
+        public void SyncToNative() { }
+        bool m_TextureFromNative;
+        Rect? m_TextureRect;
+        internal Texture2D Tex
+        {
+            get
+            {
+                if (m_Texture == null && m_TextureFromNative) { m_TextureFromNative = false; m_Texture = NRef<Texture2D>("m_RD.texture"); }
+                return m_Texture;
+            }
+        }
+
         // secondary textures (normal / mask maps a 2D renderer reads) are not imported: a sprite has none, which is what uGUI 2.0's
         // Image asks every time it rebuilds
         public int GetSecondaryTextureCount() => 0;
@@ -290,9 +319,9 @@ namespace UnityEngine
         internal Vector2 m_Pivot;
         internal Vector4 m_Border;
         internal float m_PPU = 100;
-        public Texture2D texture => m_Texture;
+        public Texture2D texture => Tex;
         public Rect rect => m_Rect;
-        public Rect textureRect => m_Rect;
+        public Rect textureRect => m_TextureRect ?? m_Rect;
         public Vector2 textureRectOffset => Vector2.zero;
         public Vector2 pivot => m_Pivot;
         public Vector4 border => m_Border;
