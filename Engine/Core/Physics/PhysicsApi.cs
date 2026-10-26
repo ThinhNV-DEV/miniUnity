@@ -10,18 +10,6 @@ using MiniUnity.Yaml;
 
 namespace UnityEngine
 {
-    public partial class PhysicMaterial
-    {
-        public PhysicMaterial() { m_Name = "DynamicMaterial"; }
-        public PhysicMaterial(string name) { m_Name = name; }
-        public float bounciness { get => NFloat("bounciness", 0); set => NSetF("bounciness", value); }
-        public float dynamicFriction { get => NFloat("dynamicFriction", 0.6f); set => NSetF("dynamicFriction", value); }
-        public float staticFriction { get => NFloat("staticFriction", 0.6f); set => NSetF("staticFriction", value); }
-        public PhysicMaterialCombine frictionCombine { get => (PhysicMaterialCombine)NInt("frictionCombine"); set => NSetI("frictionCombine", (int)value); }
-        public PhysicMaterialCombine bounceCombine { get => (PhysicMaterialCombine)NInt("bounceCombine"); set => NSetI("bounceCombine", (int)value); }
-        public float bouncyness { get => bounciness; set => bounciness = value; }
-    }
-
     public partial struct RaycastHit
     {
         internal Collider m_ColliderRef;
@@ -62,8 +50,8 @@ namespace UnityEngine
         public Vector3 point => m_Point;
         public Vector3 normal => m_Normal;
         public Vector3 impulse => m_Impulse;
-        public Collider thisCollider => m_This ?? Physics.GetColliderByInstanceID(m_ThisColliderInstanceID);
-        public Collider otherCollider => m_Other ?? Physics.GetColliderByInstanceID(m_OtherColliderInstanceID);
+        public Collider thisCollider => m_This ?? Physics.GetColliderByInstanceID(ThisColliderId);
+        public Collider otherCollider => m_Other ?? Physics.GetColliderByInstanceID(OtherColliderId);
         public float separation => m_Separation;
     }
 
@@ -87,7 +75,7 @@ namespace UnityEngine
                 m_Contacts[i] = new ContactPoint
                 {
                     m_Point = c.Point, m_Normal = c.Normal * sign, m_Impulse = c.Normal * imp, m_Separation = c.Separation,
-                    m_ThisColliderInstanceID = e.Self.GetInstanceID(), m_OtherColliderInstanceID = e.Other.GetInstanceID(), m_This = e.Self, m_Other = e.Other,
+                    ThisColliderId = e.Self.GetInstanceID(), OtherColliderId = e.Other.GetInstanceID(), m_This = e.Self, m_Other = e.Other,
                 };
             }
             m_Impulse = p.Impulse;

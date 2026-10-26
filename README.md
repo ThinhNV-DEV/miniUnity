@@ -1,6 +1,6 @@
 # MiniUnity · Unity Editor headless cho agent
 
-MiniUnity là một "Unity giả" viết trên .NET 8, chạy được code C# của một project Unity 2022.3 và đọc/ghi file của project
+MiniUnity là một "Unity giả" viết trên .NET 8, chạy được code C# của một project Unity 2022.3 hoặc Unity 6 (6000.x, xem [Unity 6](#unity-6-6000x)) và đọc/ghi file của project
 (scene, prefab, asset, `.meta`, settings) mà **không cần mở Unity Editor và không cần license**. Mục tiêu: cho agent (hoặc script, CI)
 làm việc với project Unity trong container Linux như với Editor thật.
 
@@ -33,7 +33,7 @@ Dùng qua:
 ## Yêu cầu
 
 - Linux / macOS / Windows (Git Bash). `bash`, `curl`, `tar`, `python3`, `git`.
-- **Unity Editor 2022.3 đã cài**: chỉ để đọc DLL lấy API, reference assembly và source uGUI; **không chạy** Unity, không cần license.
+- **Unity Editor 2022.3 hoặc 6000.x đã cài**: chỉ để đọc DLL lấy API, reference assembly và source uGUI; **không chạy** Unity, không cần license.
   `setup.sh` tự tìm trong Unity Hub / `/opt/unity/Editor`; hoặc đặt `UNITY_EDITOR=<…/Editor>`.
 - .NET 8 SDK (nếu chưa có, `setup.sh` tự cài vào `.cache/dotnet`).
 - Engine compile chung code video của repo này, gồm cả `Assets/Pixel Flow` và `Assets/Block Exit` (nằm sẵn trong repo); thiếu
@@ -57,6 +57,28 @@ UNITY_PROJECT=/path/to/Game ./ua.sh go.tree Assets/Scenes/Main.unity
 ```
 
 CI có job `standalone` chạy đúng cách này: chép `MiniUnity/` ra ngoài repo rồi setup, selftest và fixture.
+
+## Unity 6 (6000.x)
+
+Đã chạy với Editor 6000.3.21f1 trên một project Unity 6 + URP (Kitty Knots, khôi phục bằng AssetRipper). Mọi assembly
+package và mọi asmdef viết tay compile sạch; lỗi còn lại chỉ nằm trong code decompile (đã đối chiếu với một lần compile
+bằng DLL của chính Editor đó). Khác với 2022.3:
+
+- `setup.sh` đọc phiên bản Editor và `tools/unity_defines.py` ghi `Engine/Generated/UnityVersion.props`: define
+  `UNITY_6000_n_OR_NEWER` (Unity 6 giữ mọi define theo năm tới 2023.3), `MiniUnityApiLevel` = 6000. Engine compile
+  `Engine/Core/Versioned/6000/` thay cho `Versioned/2022/`: `EntityId`, `PhysicsMaterial` (đổi tên từ `PhysicMaterial`),
+  marshal chuỗi qua `ManagedSpanWrapper`, tên extern mới của Vector3 / Quaternion / Matrix4x4 / Bounds, và vài API mới
+  của các class viết tay (`GraphicsFormatUsage`, `RectTransform.sendChildDimensionsChange`, `FontEngine` cỡ chữ float).
+- TextMesh Pro nằm trong com.unity.ugui 2.0 (com.unity.textmeshpro chỉ còn là shim), nên `setup.sh` không tải nó.
+- `stubgen` sinh được default interface member và member internal của interface.
+- Package: một core package lấy đúng phiên bản và dependency của Editor (`BuiltInPackages/<name>/package.json`), không
+  theo phiên bản được yêu cầu (test-framework 1.6.0 kéo theo com.unity.ext.nunit). Tham chiếu asmdef `Unity.ugui`
+  (Input System, HDRP, VFX Graph) là UnityEngine.UI cộng UnityEditor.UI khi compile cho Editor. `?path=` của URL git được
+  URL-decode như Package Manager (`?path=/DOTween%20Pro`).
+- Compile định nghĩa `ENABLE_PROFILER` như Editor thật, và mỗi lỗi chỉ báo một lần như csc.
+
+Chưa kiểm lại trên 2022.3 sau các thay đổi này (container chỉ có Editor 6000.3). `tests/ua_selftest.py` chạy với Editor
+6000.3: 123 ok, 2 lỗi đều ở bước compile project mẫu, vì project đó nhắm 2022.3.62f2 và cần package của host project.
 
 ## Cài đặt
 

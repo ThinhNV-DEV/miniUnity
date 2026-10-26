@@ -610,7 +610,6 @@ namespace UnityEngine
         public float positionDamper { get => m_PositionDamper; set => m_PositionDamper = value; }
         public float maximumForce { get => m_MaximumForce; set => m_MaximumForce = value; }
         public bool useAcceleration { get => m_UseAcceleration == 1; set => m_UseAcceleration = value ? 1 : 0; }
-        public JointDriveMode mode { get => JointDriveMode.None; set { } }
     }
     public partial struct JointMotor
     {

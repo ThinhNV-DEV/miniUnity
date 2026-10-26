@@ -2,8 +2,12 @@
 # Extract member names declared in hand-written partial classes → stub-skip config lines.
 import re,sys,os,glob
 root=sys.argv[1]
+# --level L: of Core/Versioned/<level>/ only L is compiled (MiniUnity.csproj), so only L's members are hand-written
+level=sys.argv[sys.argv.index('--level')+1] if '--level' in sys.argv else None
 out={}
 for f in glob.glob(root+'/**/*.cs',recursive=True):
+    parts=os.path.relpath(f,root).split(os.sep)
+    if len(parts)>2 and parts[0]=='Versioned' and parts[1]!=level: continue
     src=open(f,encoding='utf-8').read()
     ns=None
     # crude: track namespace blocks

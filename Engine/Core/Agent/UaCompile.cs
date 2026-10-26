@@ -225,6 +225,15 @@ namespace MiniUnity.Agent
                 else
                     foreach (var r in a.RefNames)
                     {
+                        // Unity 6 packages (Input System, HDRP, VFX Graph) reference "Unity.ugui", which is no asmdef: it names uGUI's
+                        // assemblies, and for the Editor that includes UnityEditor.UI - Unity.InputSystem references nothing else and its
+                        // runtime assembly calls UnityEditor.EventSystems.InputModuleComponentFactory under UNITY_EDITOR && UNITY_6000_0_OR_NEWER
+                        if (r == "Unity.ugui" && !liveByName.ContainsKey(r))
+                        {
+                            foreach (var un in new[] { "UnityEngine.UI", "UnityEditor.UI" })
+                                if (liveByName.TryGetValue(un, out var ua) && ua != a && !a.Refs.Contains(ua) && !DependsOn(ua, a)) a.Refs.Add(ua);
+                            continue;
+                        }
                         var t = r.StartsWith("GUID:") ? liveByGuid.GetValueOrDefault(r[5..]) : liveByName.GetValueOrDefault(r);
                         if (t != null && t != a) a.Refs.Add(t);
                         else if (t == null && !m.Assemblies.Any(x => x.Name == r || (r.StartsWith("GUID:") && x.Guid == r[5..])))
@@ -310,11 +319,18 @@ namespace MiniUnity.Agent
             int major = int.Parse(vm.Groups[1].Value), minor = int.Parse(vm.Groups[2].Value), patch = int.Parse(vm.Groups[3].Value);
             d.Add($"UNITY_{major}"); d.Add($"UNITY_{major}_{minor}"); d.Add($"UNITY_{major}_{minor}_{patch}");
             foreach (var mi in new[] { 3, 4, 5, 6 }) d.Add($"UNITY_5_{mi}_OR_NEWER");
-            for (int y = 2017; y <= major && y < 3000; y++)
+            // Unity 6 is the continuation of 2023.3: it keeps every year-based define through 2023.3 and adds UNITY_6000_<n>_OR_NEWER
+            // (the same rule as tools/unity_defines.py, which writes the engine's own defines)
+            for (int y = 2017; y <= Math.Min(major, 2023); y++)
                 for (int mi = 1; mi <= (y == major ? minor : y >= 2020 ? 3 : 4); mi++) d.Add($"UNITY_{y}_{mi}_OR_NEWER");
+            if (major >= 6000)
+                for (int mi = 0; mi <= minor; mi++) d.Add($"UNITY_6000_{mi}_OR_NEWER");
             foreach (var x in new[] { "UNITY_EDITOR", "UNITY_ASSERTIONS", "ENABLE_MONO", "NET_STANDARD_2_1", "NET_STANDARD", "NETSTANDARD2_1", "NETSTANDARD", "CSHARP_7_3_OR_NEWER",
                 "DEBUG", "TRACE", "UNITY_SERVER_FALSE", "ENABLE_AUDIO", "ENABLE_CLOTH", "ENABLE_PHYSICS", "ENABLE_UNITYEVENTS", "ENABLE_CLOUD_SERVICES", "ENABLE_UNET",
-                "UNITY_TEAM_LICENSE", "ENABLE_MANAGED_JOBS", "ENABLE_BURST_AOT", "ENABLE_UNITY_COLLECTIONS_CHECKS", "ENABLE_TEXTURE_STREAMING", "ENABLE_RUNTIME_GI" }) d.Add(x);
+                "UNITY_TEAM_LICENSE", "ENABLE_MANAGED_JOBS", "ENABLE_BURST_AOT", "ENABLE_UNITY_COLLECTIONS_CHECKS", "ENABLE_TEXTURE_STREAMING", "ENABLE_RUNTIME_GI",
+                // the Editor always has the profiler; Addressables 2.x Editor code reads ProfilerRuntime, which only exists under it.
+                // The Profiler API itself is a no-op stub here, so this changes what compiles, not what runs
+                "ENABLE_PROFILER" }) d.Add(x);
             d.Add(OperatingSystem.IsWindows() ? "UNITY_EDITOR_WIN" : OperatingSystem.IsMacOS() ? "UNITY_EDITOR_OSX" : "UNITY_EDITOR_LINUX");
             var plat = m.Platform.ToLowerInvariant();
             string group = "Standalone";
@@ -518,7 +534,8 @@ namespace MiniUnity.Agent
                         pe.SetLength(0); pdb.SetLength(0); api.SetLength(0);
                         er = comp.Emit(pe, pdb, metadataPEStream: api, options: emitOpts);
                     }
-                    a.Diagnostics.AddRange(er.Diagnostics.Where(d => d.Severity >= DiagnosticSeverity.Warning && d.Location.SourceTree?.FilePath != AccessShimPath && !(d.Id == "CS0436" && d.GetMessage().Contains("IgnoresAccessChecksTo"))));
+                    // Roslyn can report one diagnostic twice (a cast bound once per pass); csc prints each once, and so does Unity
+                    a.Diagnostics.AddRange(er.Diagnostics.Where(d => d.Severity >= DiagnosticSeverity.Warning && d.Location.SourceTree?.FilePath != AccessShimPath && !(d.Id == "CS0436" && d.GetMessage().Contains("IgnoresAccessChecksTo"))).Distinct());
                     if (er.Success)
                     {
                         SafeIO.Check(a.OutputPath);
@@ -536,7 +553,7 @@ namespace MiniUnity.Agent
                 }
                 else
                 {
-                    a.Diagnostics.AddRange(comp.GetDiagnostics().Where(d => d.Severity >= DiagnosticSeverity.Warning));
+                    a.Diagnostics.AddRange(comp.GetDiagnostics().Where(d => d.Severity >= DiagnosticSeverity.Warning).Distinct());
                     a.Failed = a.Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
                 }
                 a.Built = true;

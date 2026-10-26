@@ -70,7 +70,7 @@ namespace MiniUnity
             if (Declares(path, t)) s += 100;   // same class name in two namespaces (e.g. two games' GameController)
             if (TypeCache.IsProjectType(t)) s += 50;   // compiled project scripts (ua play / ua test) beat MiniUnity's embedded copies
             var ns = t.Namespace ?? "";
-            if (ns.StartsWith("TMPro") && path.Contains("textmeshpro")) s += 5;
+            if (ns.StartsWith("TMPro") && (path.Contains("textmeshpro") || path.Contains("ugui/Runtime/TMP/"))) s += 5;   // Unity 6: inside uGUI 2.0
             if (ns.StartsWith("UnityEngine.UI") && path.Contains("ugui")) s += 5;
             if (ns.StartsWith("UnityEngine.EventSystems") && path.Contains("ugui")) s += 5;
             if (ns.StartsWith("UnityEngine.Timeline") && path.Contains("timeline")) s += 5;

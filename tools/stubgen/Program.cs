@@ -131,6 +131,8 @@ static class Program
         Accessibility.Public => "public", Accessibility.Protected => "protected", Accessibility.ProtectedOrInternal => "protected internal",
         Accessibility.Internal => "internal", Accessibility.ProtectedAndInternal => "private protected", _ => "private"
     };
+    /// <summary>An interface member's modifier: none when public (the default there), its own accessibility otherwise.</summary>
+    static string IfaceAcc(ISymbol s) => s.DeclaredAccessibility == Accessibility.Public ? "" : Acc(s) + " ";
 
     static string Ind(int n) => new string(' ', n * 4);
 
@@ -327,7 +329,16 @@ static class Program
         string rt = (p.ReturnsByRef ? "ref " : p.ReturnsByRefReadonly ? "ref readonly " : "") + T(p.Type);
         if (isIface)
         {
-            sb.AppendLine($"{MI}{rt} {nm} {{ {(p.GetMethod != null ? "get; " : "")}{(p.SetMethod != null ? "set; " : "")}}}");
+            // Unity 6 interfaces carry default implementations (IRenderPipelineGraphicsSettings.isAvailableInPlayerBuild) and
+            // non-public members (ProcessorInstance.IContext): an implementer relies on the first, a public stub of the second
+            // exposes an internal type
+            if (p.IsAbstract)
+                sb.AppendLine($"{MI}{IfaceAcc(p)}{rt} {nm} {{ {(p.GetMethod != null ? "get; " : "")}{(p.SetMethod != null ? "set; " : "")}}}");
+            else
+            {
+                string dim = $" => throw new global::System.NotImplementedException(\"{FullName(p.ContainingType)}.{p.Name}\");";
+                sb.AppendLine($"{MI}{IfaceAcc(p)}{(p.IsStatic ? "static " : "")}{rt} {nm} {{ {(p.GetMethod != null ? "get" + dim + " " : "")}{(p.SetMethod != null && !p.ReturnsByRef ? "set" + dim + " " : "")}}}");
+            }
             return;
         }
         if (explicitOf != null)
@@ -363,7 +374,12 @@ static class Program
     {
         string tps = m.TypeParameters.Length > 0 ? "<" + string.Join(", ", m.TypeParameters.Select(p => p.Name)) + ">" : "";
         string ps = Params(m.Parameters);
-        if (isIface) { sb.AppendLine($"{MI}{RetT(m)} {Esc(m.Name)}{tps}({ps}){Constraints(m.TypeParameters)};"); return; }
+        if (isIface)
+        {
+            string dim = m.IsAbstract ? ";" : $" => throw new global::System.NotImplementedException(\"{FullName(m.ContainingType)}.{m.Name}\");";
+            sb.AppendLine($"{MI}{IfaceAcc(m)}{(m.IsStatic && !m.IsAbstract ? "static " : "")}{RetT(m)} {Esc(m.Name)}{tps}({ps}){Constraints(m.TypeParameters)}{dim}");
+            return;
+        }
         if (explicitOf != null) { sb.AppendLine($"{MI}{RetT(m)} {T(explicitOf)}.{Esc(m.Name)}{tps}({ps}) => throw null;"); return; }
         if (m.MethodKind == MethodKind.UserDefinedOperator)
         {

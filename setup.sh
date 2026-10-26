@@ -57,6 +57,7 @@ if [ "$CHECK" = 1 ]; then
   if command -v dotnet >/dev/null && dotnet --list-sdks | grep -q '^8\.'; then ok ".NET 8 SDK" "$(dotnet --version)"; else ok ".NET 8 SDK" "MISSING (setup.sh installs it)"; fi
   if find_editor; then ok "Unity Editor" "$UNITY_EDITOR"; else ok "Unity Editor" "MISSING ($VERSION; install it, set UNITY_EDITOR, or setup.sh --download-unity)"; fi
   for p in com.unity.timeline com.unity.textmeshpro com.unity.cinemachine com.unity.ugui com.unity.test-framework com.unity.ext.nunit com.unity.postprocessing litmotion; do
+    if [ "$p" = com.unity.textmeshpro ] && [ -d "$MU_CACHE/packages/com.unity.ugui/Runtime/TMP" ]; then ok "package $p" "part of com.unity.ugui (Unity 6)"; continue; fi
     [ -d "$MU_CACHE/packages/$p" ] && ok "package $p" "$(cat "$MU_CACHE/packages/$p/.version" 2>/dev/null || echo present)" || ok "package $p" "MISSING"
   done
   for d in Engine/Generated Engine/Decompiled; do [ -d "$d" ] && ok "$d" "$(find "$d" -name '*.cs' | wc -l) files" || ok "$d" "MISSING"; done
@@ -101,12 +102,21 @@ echo "using $UNITY_EDITOR (project wants $VERSION)"
 step "package sources"
 PKG="$MU_CACHE/packages"; mkdir -p "$PKG"
 LOCK="${UNITY_PROJECT:+$UNITY_PROJECT/Packages/packages-lock.json}"
+MANIFEST="${UNITY_PROJECT:+$UNITY_PROJECT/Packages/manifest.json}"
 lockver() {
   local v=""
   [ -n "$LOCK" ] && [ -f "$LOCK" ] && v=$(python3 -c "import json,sys;d=json.load(open(sys.argv[2]))['dependencies'];print(d.get(sys.argv[1],{}).get('version',''))" "$1" "$LOCK")
-  [[ -n "$v" && "$v" != http* ]] && echo "$v" || default_of "$1"
+  # a project Unity has not opened yet has a manifest and no lock file (a recovered project, for one)
+  [ -z "$v" ] && [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ] && v=$(python3 -c "import json,sys;print(json.load(open(sys.argv[2]))['dependencies'].get(sys.argv[1],''))" "$1" "$MANIFEST")
+  [[ -n "$v" && "$v" != http* && "$v" != file:* ]] && echo "$v" || default_of "$1"
 }
+# Unity 6 moved TextMeshPro into com.unity.ugui 2.0 (Runtime/TMP) and ships com.unity.textmeshpro as an empty shim, so the
+# package is neither fetched nor compiled there: both would declare every TMPro type.
+TMP_IN_UGUI=0
+grep -q '"type": *"shim"' "$DATA/Resources/PackageManager/BuiltInPackages/com.unity.textmeshpro/package.json" 2>/dev/null && TMP_IN_UGUI=1
+[ "$TMP_IN_UGUI" = 1 ] && { echo "  TextMeshPro is part of com.unity.ugui in this Editor"; rm -rf "$PKG/com.unity.textmeshpro"; }
 for p in com.unity.timeline com.unity.textmeshpro com.unity.cinemachine com.unity.test-framework com.unity.ext.nunit com.unity.postprocessing; do
+  [ "$p" = com.unity.textmeshpro ] && [ "$TMP_IN_UGUI" = 1 ] && continue
   v=$(lockver $p)
   if [ "$(cat "$PKG/$p/.version" 2>/dev/null)" != "$v" ]; then
     echo "  $p@$v"
@@ -140,7 +150,7 @@ dotnet build tools/monofloat/monofloat.csproj -c Release -o "$MU_CACHE/tools/mon
 
 # ---------------------------------------------------------------- 5. API stubs from the Editor DLLs
 step "stubs (Engine/Generated)"
-"$MU_HOME/scripts/gen_stubs.sh" "$DATA"
+"$MU_HOME/scripts/gen_stubs.sh" "$DATA" "$VERSION"
 
 # ---------------------------------------------------------------- 6. pure-managed engine code decompiled from the Editor DLLs
 step "decompile (Engine/Decompiled)"

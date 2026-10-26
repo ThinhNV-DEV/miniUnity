@@ -221,7 +221,7 @@ public static class Program
         Open(args[1]);
         var fa = UnityEditor.AssetDatabase.LoadAssetAtPath<TMPro.TMP_FontAsset>(args[2]);
         var FE = typeof(UnityEngine.TextCore.LowLevel.FontEngine);
-        Console.WriteLine($"load: {UnityEngine.TextCore.LowLevel.FontEngine.LoadFontFace(fa.sourceFontFile, fa.faceInfo.pointSize)} pad {fa.atlasPadding} mode {fa.atlasRenderMode}");
+        Console.WriteLine($"load: {UnityEngine.TextCore.LowLevel.FontEngine.LoadFontFace(fa.sourceFontFile, (int)fa.faceInfo.pointSize)} pad {fa.atlasPadding} mode {fa.atlasRenderMode}");
         var atlas = fa.atlasTexture; atlas.EnsurePixels();
         int ok = 0, okRect = 0, n = 0; double num = 0, den = 0, err = 0; int cnt = 0;
         foreach (var g in fa.glyphTable)

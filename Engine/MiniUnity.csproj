@@ -10,6 +10,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Core/**/*.cs;Shims/**/*.cs" />
+    <!-- hand-written API that differs between Unity versions: only the folder of the Editor the stubs came from -->
+    <Compile Remove="Core/Versioned/**/*.cs" />
+    <Compile Include="Core/Versioned/$(MiniUnityApiLevel)/**/*.cs" />
     <Compile Include="Generated/**/*.cs;Decompiled/**/*.cs" />
     <!-- package sources (fetched by setup.sh at the versions in Packages/packages-lock.json) -->
     <Compile Include="$(MiniUnityCache)packages/com.unity.timeline/Runtime/**/*.cs" Link="Pkg/Timeline/%(RecursiveDir)%(Filename)%(Extension)" />

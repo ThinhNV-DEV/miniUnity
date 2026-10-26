@@ -87,6 +87,7 @@ namespace MiniUnity.Agent
         public sealed class Resolved
         {
             public string Name, Version, Source, Url, Hash; public int Depth;
+            internal string Requested;   // the version the resolution chose; a builtin's Version is the Editor's own instead
             public SortedDictionary<string, string> Deps = new(StringComparer.Ordinal);
         }
 
@@ -114,8 +115,8 @@ namespace MiniUnity.Agent
                 // choose: embedded > direct > highest requested
                 string chosen = embedded.ContainsKey(name) ? "file:" + Path.GetFileName(embedded[name]) : direct.TryGetValue(name, out var dv) ? dv
                     : reqs.Where(r => !IsGit(r) && !IsLocal(r)).OrderBy(r => r, Comparer<string>.Create(CompareVersions)).LastOrDefault() ?? reqs.Last();
-                if (res.TryGetValue(name, out var have) && have.Version == chosen && have.Depth <= depth) continue;
-                var r = new Resolved { Name = name, Version = chosen, Depth = res.TryGetValue(name, out var prev) ? Math.Min(prev.Depth, depth) : depth };
+                if (res.TryGetValue(name, out var have) && have.Requested == chosen && have.Depth <= depth) continue;
+                var r = new Resolved { Name = name, Version = chosen, Requested = chosen, Depth = res.TryGetValue(name, out var prev) ? Math.Min(prev.Depth, depth) : depth };
                 var lockEntry = lockDeps?[name] as JsonObject;
                 if (embedded.TryGetValue(name, out var edir))
                 {
@@ -126,7 +127,15 @@ namespace MiniUnity.Agent
                          || (UnityEditorInstall.BuiltInPackages is string bip && Directory.Exists(Path.Combine(bip, name)) && !direct.ContainsKey(name + "#registry")))
                 {
                     r.Source = "builtin";
-                    if (lockEntry?["dependencies"] is JsonObject ld) foreach (var d in ld) r.Deps[d.Key] = d.Value!.GetValue<string>();
+                    // a core package is the version the Editor ships, whatever was requested, with that version's dependencies
+                    // (Unity 6: com.unity.test-framework 1.6.0 brings com.unity.ext.nunit)
+                    var bpj = UnityEditorInstall.BuiltInPackages is string bdir ? Path.Combine(bdir, name, "package.json") : null;
+                    if (bpj != null && File.Exists(bpj) && JsonNode.Parse(File.ReadAllText(bpj)) is JsonObject pj)
+                    {
+                        if (pj["version"]?.GetValue<string>() is string bv) r.Version = bv;
+                        foreach (var d in pj["dependencies"] as JsonObject ?? new JsonObject()) r.Deps[d.Key] = d.Value!.GetValue<string>();
+                    }
+                    else if (lockEntry?["dependencies"] is JsonObject ld) foreach (var d in ld) r.Deps[d.Key] = d.Value!.GetValue<string>();
                 }
                 else if (IsGit(chosen) || IsLocal(chosen))
                 {
@@ -214,7 +223,8 @@ namespace MiniUnity.Agent
             {
                 // url[?path=sub][#rev]
                 var m = Regex.Match(r.Version, @"^(?<url>[^?#]+)(\?path=(?<path>[^#]+))?(#(?<rev>.+))?$");
-                string url = m.Groups["url"].Value.Replace("git+", ""), sub = m.Groups["path"].Value.Trim('/'), rev = r.Hash ?? (m.Groups["rev"].Success ? m.Groups["rev"].Value : null);
+                // the path is URL-encoded as in Unity ("?path=/DOTween%20Pro")
+                string url = m.Groups["url"].Value.Replace("git+", ""), sub = Uri.UnescapeDataString(m.Groups["path"].Value).Trim('/'), rev = r.Hash ?? (m.Groups["rev"].Success ? m.Groups["rev"].Value : null);
                 var tmp = Path.Combine(Path.GetTempPath(), "ua_git_" + Guid.NewGuid().ToString("N")[..8]);
                 Run("git", $"clone --quiet --filter=blob:none --no-checkout \"{url}\" \"{tmp}\"");
                 if (rev != null) Run("git", $"-C \"{tmp}\" checkout --quiet {rev}"); else Run("git", $"-C \"{tmp}\" checkout --quiet");
@@ -224,6 +234,8 @@ namespace MiniUnity.Agent
                 if (!Directory.Exists(dir))
                 {
                     SafeIO.Check(dir);
+                    // a missing subfolder must not leave an empty package folder behind: the next resolve would take it as fetched
+                    if (!Directory.Exists(Path.Combine(tmp, sub))) { try { Directory.Delete(tmp, true); } catch { } throw new DirectoryNotFoundException($"{url} has no folder '{sub}' at {hash[..10]}"); }
                     CopyDir(Path.Combine(tmp, sub), dir);
                 }
                 try { Directory.Delete(tmp, true); } catch { }
