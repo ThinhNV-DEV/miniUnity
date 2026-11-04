@@ -8,6 +8,7 @@ Engine/Decompiled/
 Engine/Transformed/
 Engine/Transformed.props
 Engine/Transformed.props.new
+Engine/UnityVersion.props
 # reports
 out/
 # the root .gitignore drops *.csproj (Unity-generated); these are hand-written

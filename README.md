@@ -1,6 +1,6 @@
 # MiniUnity · Unity Editor headless cho agent
 
-MiniUnity là một "Unity giả" viết trên .NET 8, chạy được code C# của một project Unity 2022.3 và đọc/ghi file của project
+MiniUnity là một "Unity giả" viết trên .NET 8, chạy được code C# của một project Unity 2022.3 hoặc Unity 6 (6000.x) và đọc/ghi file của project
 (scene, prefab, asset, `.meta`, settings) mà **không cần mở Unity Editor và không cần license**. Mục tiêu: cho agent (hoặc script, CI)
 làm việc với project Unity trong container Linux như với Editor thật.
 
@@ -33,7 +33,7 @@ Dùng qua:
 ## Yêu cầu
 
 - Linux / macOS / Windows (Git Bash). `bash`, `curl`, `tar`, `python3`, `git`.
-- **Unity Editor 2022.3 đã cài**: chỉ để đọc DLL lấy API, reference assembly và source uGUI; **không chạy** Unity, không cần license.
+- **Unity Editor 2022.3 hoặc Unity 6 (6000.x) đã cài**, đúng phiên bản của project: chỉ để đọc DLL lấy API, reference assembly và source uGUI; **không chạy** Unity, không cần license.
   `setup.sh` tự tìm trong Unity Hub / `/opt/unity/Editor`; hoặc đặt `UNITY_EDITOR=<…/Editor>`.
 - .NET 8 SDK (nếu chưa có, `setup.sh` tự cài vào `.cache/dotnet`).
 - Engine compile chung code video của repo này, gồm cả `Assets/Pixel Flow` và `Assets/Block Exit` (nằm sẵn trong repo); thiếu
@@ -44,6 +44,19 @@ Dùng qua:
 Trên Linux không có Unity Hub (container, CI): `./setup.sh --download-unity` tải bản cài Editor đúng phiên bản (revision lấy từ
 `ProjectVersion.txt`, `--unity-revision` hoặc `config/defaults.cfg`) dạng stream và chỉ giữ phần MiniUnity đọc (~1.6 GB trong `.cache/unity/<version>/Editor`, không cần license);
 engine tự tìm ở đó. `./setup.sh --check` liệt kê những gì đã có / còn thiếu / đã cũ mà không sửa gì.
+
+## Unity 6
+
+Project Unity 6 (6000.x, ví dụ 6000.3.21f1) dùng cùng quy trình: `setup.sh` đọc phiên bản từ `ProjectSettings/ProjectVersion.txt`
+(trên Linux: `UNITY_PROJECT=/path/to/Game ./setup.sh --download-unity`). Khác với 2022.3:
+
+- TextMeshPro, Test Framework và NUnit là package **built-in** của Editor (registry không có): `setup.sh` chép từ
+  `BuiltInPackages` như uGUI. Từ Unity 6, code TextMeshPro nằm trong `com.unity.ugui` 2.x (`Runtime/TMP`).
+- Engine được build với define của đúng Editor đó (`Engine/UnityVersion.props`, sinh bởi `scripts/unity_defines.py`:
+  `UNITY_6000_3_OR_NEWER`, …, `UNITY_2023_3_OR_NEWER`, …); chỗ API khác giữa hai bản nằm sau `#if UNITY_6000_0_OR_NEWER`
+  (`Core/Unity6Api.cs`, `Core/NativeMath6.cs`, `Core/Physics/UnityVersionAliases.cs`: `PhysicMaterial` → `PhysicsMaterial`).
+- `ua compile`: package viết cho Unity cũ dùng API đã đổi tên (`(UnityUpgradable) -> Tên`, CS0619) được đổi tên trong bộ nhớ như
+  API Updater của Unity làm với package; file trên đĩa giữ nguyên, script trong `Assets/` vẫn báo lỗi như Unity.
 
 ## Dùng độc lập (không nằm trong project Unity)
 

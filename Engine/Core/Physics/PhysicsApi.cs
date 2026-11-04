@@ -10,6 +10,22 @@ using MiniUnity.Yaml;
 
 namespace UnityEngine
 {
+#if UNITY_6000_0_OR_NEWER
+    // Unity 6 renamed PhysicMaterial / PhysicMaterialCombine to PhysicsMaterial / PhysicsMaterialCombine; the engine keeps the old
+    // names as aliases (Core/Physics/UnityVersionAliases.cs)
+    public partial class PhysicsMaterial
+    {
+        public PhysicsMaterial() { m_Name = "DynamicMaterial"; }
+        public PhysicsMaterial(string name) { m_Name = name; }
+        public float bounciness { get => NFloat("bounciness", 0); set => NSetF("bounciness", value); }
+        public float dynamicFriction { get => NFloat("dynamicFriction", 0.6f); set => NSetF("dynamicFriction", value); }
+        public float staticFriction { get => NFloat("staticFriction", 0.6f); set => NSetF("staticFriction", value); }
+        public PhysicsMaterialCombine frictionCombine { get => (PhysicsMaterialCombine)NInt("frictionCombine"); set => NSetI("frictionCombine", (int)value); }
+        public PhysicsMaterialCombine bounceCombine { get => (PhysicsMaterialCombine)NInt("bounceCombine"); set => NSetI("bounceCombine", (int)value); }
+        public float bouncyness { get => bounciness; set => bounciness = value; }
+    }
+
+#else
     public partial class PhysicMaterial
     {
         public PhysicMaterial() { m_Name = "DynamicMaterial"; }
@@ -22,6 +38,7 @@ namespace UnityEngine
         public float bouncyness { get => bounciness; set => bounciness = value; }
     }
 
+#endif
     public partial struct RaycastHit
     {
         internal Collider m_ColliderRef;
@@ -62,8 +79,14 @@ namespace UnityEngine
         public Vector3 point => m_Point;
         public Vector3 normal => m_Normal;
         public Vector3 impulse => m_Impulse;
+#if UNITY_6000_2_OR_NEWER
+        // Unity 6.2+ stores EntityIds (Unity6Api.cs); MiniUnity ids are the same ints
+        public Collider thisCollider => m_This ?? Physics.GetColliderByInstanceID(m_ThisColliderEntityId);
+        public Collider otherCollider => m_Other ?? Physics.GetColliderByInstanceID(m_OtherColliderEntityId);
+#else
         public Collider thisCollider => m_This ?? Physics.GetColliderByInstanceID(m_ThisColliderInstanceID);
         public Collider otherCollider => m_Other ?? Physics.GetColliderByInstanceID(m_OtherColliderInstanceID);
+#endif
         public float separation => m_Separation;
     }
 
@@ -87,7 +110,11 @@ namespace UnityEngine
                 m_Contacts[i] = new ContactPoint
                 {
                     m_Point = c.Point, m_Normal = c.Normal * sign, m_Impulse = c.Normal * imp, m_Separation = c.Separation,
+#if UNITY_6000_2_OR_NEWER
+                    m_ThisColliderEntityId = e.Self.GetInstanceID(), m_OtherColliderEntityId = e.Other.GetInstanceID(), m_This = e.Self, m_Other = e.Other,
+#else
                     m_ThisColliderInstanceID = e.Self.GetInstanceID(), m_OtherColliderInstanceID = e.Other.GetInstanceID(), m_This = e.Self, m_Other = e.Other,
+#endif
                 };
             }
             m_Impulse = p.Impulse;

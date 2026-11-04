@@ -20,7 +20,7 @@ namespace MiniUnity.Agent
             [82] = "AudioSource", [83] = "AudioClip", [84] = "RenderTexture", [89] = "Cubemap", [90] = "Avatar", [91] = "AnimatorController",
             [95] = "Animator", [96] = "TrailRenderer", [102] = "TextMesh", [104] = "RenderSettings", [108] = "Light", [111] = "Animation",
             [114] = "MonoBehaviour", [115] = "MonoScript", [117] = "Texture3D", [119] = "Projector", [120] = "LineRenderer", [123] = "LensFlare",
-            [124] = "FlareLayer", [126] = "NavMeshProjectSettings", [128] = "Font", [129] = "PlayerSettings", [134] = "PhysicMaterial",
+            [124] = "FlareLayer", [126] = "NavMeshProjectSettings", [128] = "Font", [129] = "PlayerSettings", [134] = MiniUnity.UnityVersionNames.PhysicMaterial,
             [135] = "SphereCollider", [136] = "CapsuleCollider", [137] = "SkinnedMeshRenderer", [138] = "FixedJoint", [141] = "BuildSettings",
             [143] = "CharacterController", [144] = "CharacterJoint", [145] = "SpringJoint", [146] = "WheelCollider", [153] = "ConfigurableJoint",
             [154] = "TerrainCollider", [156] = "TerrainData", [157] = "LightmapSettings", [159] = "EditorSettings", [162] = "EditorUserSettings",

@@ -210,6 +210,7 @@ namespace MiniUnity.Agent
             }
             // references
             var live = m.Assemblies.Where(a => !a.Excluded).ToList();
+            bool unity6 = int.TryParse(UnityEditorInstall.EditorVersion().Split('.')[0], out var editorMajor) && editorMajor >= 6000;
             var liveByName = live.GroupBy(a => a.Name).ToDictionary(g => g.Key, g => g.First());
             var liveByGuid = live.Where(a => a.Guid != null).GroupBy(a => a.Guid).ToDictionary(g => g.Key, g => g.First());
             foreach (var a in live)
@@ -230,10 +231,12 @@ namespace MiniUnity.Agent
                         else if (t == null && !m.Assemblies.Any(x => x.Name == r || (r.StartsWith("GUID:") && x.Guid == r[5..])))
                             m.Warnings.Add($"{a.Name}: reference {r} not found");
                     }
-                // uGUI is referenced implicitly by every assembly that has engine references (as in the Editor)
+                // uGUI is referenced implicitly by every assembly that has engine references (as in the Editor). Unity 6 (uGUI 2.x,
+                // built in) also gives runtime assemblies the Editor half when compiling for the Editor: Input System 1.20's
+                // runtime assembly uses UnityEditor.EventSystems under #if UNITY_EDITOR.
                 if (!a.NoEngineRefs)
-                    foreach (var ui in a.Editor ? new[] { "UnityEngine.UI", "UnityEditor.UI" } : new[] { "UnityEngine.UI" })
-                        if (liveByName.TryGetValue(ui, out var uia) && uia != a && !a.Refs.Contains(uia) && !uia.Refs.Contains(a) && !(uia.Name == "UnityEditor.UI" && a.Name == "UnityEngine.UI"))
+                    foreach (var ui in a.Editor || unity6 && a.Package is not ("com.unity.ugui" or "com.unity.test-framework" or "com.unity.ext.nunit") ? new[] { "UnityEngine.UI", "UnityEditor.UI" } : new[] { "UnityEngine.UI" })
+                        if (liveByName.TryGetValue(ui, out var uia) && uia != a && !a.Refs.Contains(uia) && !uia.Refs.Contains(a) && !DependsOn(uia, a) && !(uia.Name == "UnityEditor.UI" && a.Name == "UnityEngine.UI"))
                             a.Refs.Add(uia);
                 // Editor assemblies also see the Test Framework API implicitly (UnityEditor.TestTools.TestRunner.Api …)
                 if (a.Editor && !a.NoEngineRefs && a.Package != "com.unity.test-framework" && a.Package != "com.unity.ext.nunit")
@@ -259,6 +262,35 @@ namespace MiniUnity.Agent
             };
             JsonObject Obj(System.Text.Json.JsonElement e) { var o = new JsonObject(); foreach (var p in e.EnumerateObject()) o[p.Name] = Conv(p.Value); return o; }
             return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object ? Obj(doc.RootElement) : new JsonObject();
+        }
+
+        // CS0619 "'LightType.Area' is obsolete: '… (UnityUpgradable) -> Rectangle'": Unity's API Updater rewrites such references
+        // in packages (Library/PackageCache) before they compile, so a package written for an older Unity still builds. Only plain
+        // renames (the target is a name, not a member signature) are applied, in memory; the files on disk stay as they are.
+        static readonly Regex UpgradableRename = new(@"\(UnityUpgradable\) -> (?:\[[^\]]*\]\s*)?(?:[\w.]+\.)?(\w+)'?$");
+        static bool ApiUpdate(ref CSharpCompilation comp, IEnumerable<Diagnostic> diags)
+        {
+            bool changed = false;
+            foreach (var g in diags.Where(d => d.Id == "CS0619" && d.Location.SourceTree != null).GroupBy(d => d.Location.SourceTree))
+            {
+                var changes = new Dictionary<int, Microsoft.CodeAnalysis.Text.TextChange>();
+                var root = g.Key.GetRoot();
+                foreach (var d in g)
+                {
+                    var msg = d.GetMessage();
+                    var to = UpgradableRename.Match(msg); var from = Regex.Match(msg, @"^'([^']+)'");
+                    if (!to.Success || !from.Success) continue;
+                    var oldName = Regex.Replace(from.Groups[1].Value, @"<.*>$", "").Split('.').Last();
+                    var tok = root.DescendantTokens(d.Location.SourceSpan).LastOrDefault(x => x.IsKind(SyntaxKind.IdentifierToken) && x.ValueText == oldName);
+                    if (tok == default) continue;
+                    changes[tok.SpanStart] = new Microsoft.CodeAnalysis.Text.TextChange(tok.Span, to.Groups[1].Value);
+                }
+                if (changes.Count == 0) continue;
+                var tree = g.Key.WithChangedText(g.Key.GetText().WithChanges(changes.Values));
+                comp = comp.ReplaceSyntaxTree(g.Key, tree);
+                changed = true;
+            }
+            return changed;
         }
 
         static bool DependsOn(UAssembly a, UAssembly target, HashSet<UAssembly> seen = null)
@@ -310,8 +342,12 @@ namespace MiniUnity.Agent
             int major = int.Parse(vm.Groups[1].Value), minor = int.Parse(vm.Groups[2].Value), patch = int.Parse(vm.Groups[3].Value);
             d.Add($"UNITY_{major}"); d.Add($"UNITY_{major}_{minor}"); d.Add($"UNITY_{major}_{minor}_{patch}");
             foreach (var mi in new[] { 3, 4, 5, 6 }) d.Add($"UNITY_5_{mi}_OR_NEWER");
-            for (int y = 2017; y <= major && y < 3000; y++)
+            // same rules as scripts/unity_defines.py: Unity 6 (6000.x) still defines every year define up to UNITY_2023_3_OR_NEWER,
+            // then UNITY_6000_<minor>_OR_NEWER
+            for (int y = 2017; y <= Math.Min(major, 2023); y++)
                 for (int mi = 1; mi <= (y == major ? minor : y >= 2020 ? 3 : 4); mi++) d.Add($"UNITY_{y}_{mi}_OR_NEWER");
+            for (int v = 6000; v <= major; v++)
+                for (int mi = 0; mi <= (v == major ? minor : 9); mi++) d.Add($"UNITY_{v}_{mi}_OR_NEWER");
             foreach (var x in new[] { "UNITY_EDITOR", "UNITY_ASSERTIONS", "ENABLE_MONO", "NET_STANDARD_2_1", "NET_STANDARD", "NETSTANDARD2_1", "NETSTANDARD", "CSHARP_7_3_OR_NEWER",
                 "DEBUG", "TRACE", "UNITY_SERVER_FALSE", "ENABLE_AUDIO", "ENABLE_CLOTH", "ENABLE_PHYSICS", "ENABLE_UNITYEVENTS", "ENABLE_CLOUD_SERVICES", "ENABLE_UNET",
                 "UNITY_TEAM_LICENSE", "ENABLE_MANAGED_JOBS", "ENABLE_BURST_AOT", "ENABLE_UNITY_COLLECTIONS_CHECKS", "ENABLE_TEXTURE_STREAMING", "ENABLE_RUNTIME_GI" }) d.Add(x);
@@ -518,6 +554,12 @@ namespace MiniUnity.Agent
                         pe.SetLength(0); pdb.SetLength(0); api.SetLength(0);
                         er = comp.Emit(pe, pdb, metadataPEStream: api, options: emitOpts);
                     }
+                    // packages: what Unity's API Updater rewrites before the package compiles (simple UnityUpgradable renames)
+                    for (int pass = 0; pass < 3 && !er.Success && a.FromPackage && ApiUpdate(ref comp, er.Diagnostics); pass++)
+                    {
+                        pe.SetLength(0); pdb.SetLength(0); api.SetLength(0);
+                        er = comp.Emit(pe, pdb, metadataPEStream: api, options: emitOpts);
+                    }
                     a.Diagnostics.AddRange(er.Diagnostics.Where(d => d.Severity >= DiagnosticSeverity.Warning && d.Location.SourceTree?.FilePath != AccessShimPath && !(d.Id == "CS0436" && d.GetMessage().Contains("IgnoresAccessChecksTo"))));
                     if (er.Success)
                     {
@@ -536,7 +578,9 @@ namespace MiniUnity.Agent
                 }
                 else
                 {
-                    a.Diagnostics.AddRange(comp.GetDiagnostics().Where(d => d.Severity >= DiagnosticSeverity.Warning));
+                    var diags = comp.GetDiagnostics();
+                    for (int pass = 0; pass < 3 && a.FromPackage && ApiUpdate(ref comp, diags); pass++) diags = comp.GetDiagnostics();
+                    a.Diagnostics.AddRange(diags.Where(d => d.Severity >= DiagnosticSeverity.Warning));
                     a.Failed = a.Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
                 }
                 a.Built = true;

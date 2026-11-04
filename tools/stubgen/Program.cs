@@ -327,7 +327,16 @@ static class Program
         string rt = (p.ReturnsByRef ? "ref " : p.ReturnsByRefReadonly ? "ref readonly " : "") + T(p.Type);
         if (isIface)
         {
-            sb.AppendLine($"{MI}{rt} {nm} {{ {(p.GetMethod != null ? "get; " : "")}{(p.SetMethod != null ? "set; " : "")}}}");
+            if (p.IsAbstract && !p.IsStatic && IfaceSigPublic(p))
+            {
+                sb.AppendLine($"{MI}{rt} {nm} {{ {(p.GetMethod != null ? "get; " : "")}{(p.SetMethod != null ? "set; " : "")}}}");
+                return;
+            }
+            // default interface member (Unity 6: IRenderPipelineGraphicsSettings.isAvailableInPlayerBuild…), or a member whose
+            // signature uses non-public types: give it a body so implementers do not have to, internal when it cannot be public
+            string ib = $" => throw new global::System.NotImplementedException(\"{FullName(p.ContainingType)}.{p.Name}\");";
+            if (p.IsStatic && p.IsAbstract) { Console.Error.WriteLine("WARN static abstract skipped " + p); return; }
+            sb.AppendLine($"{MI}{IfaceAcc(p)}{(p.IsStatic ? "static " : "")}{rt} {nm} {{ {(p.GetMethod != null ? "get" + ib + " " : "")}{(p.SetMethod != null && !p.ReturnsByRef ? "set" + ib + " " : "")}}}");
             return;
         }
         if (explicitOf != null)
@@ -363,7 +372,14 @@ static class Program
     {
         string tps = m.TypeParameters.Length > 0 ? "<" + string.Join(", ", m.TypeParameters.Select(p => p.Name)) + ">" : "";
         string ps = Params(m.Parameters);
-        if (isIface) { sb.AppendLine($"{MI}{RetT(m)} {Esc(m.Name)}{tps}({ps}){Constraints(m.TypeParameters)};"); return; }
+        if (isIface)
+        {
+            if (m.IsAbstract && !m.IsStatic && IfaceSigPublic(m)) { sb.AppendLine($"{MI}{RetT(m)} {Esc(m.Name)}{tps}({ps}){Constraints(m.TypeParameters)};"); return; }
+            if (m.MethodKind != MethodKind.Ordinary || m.IsStatic && m.IsAbstract) { Console.Error.WriteLine("WARN interface member skipped " + m); return; }
+            // default interface method / non-public signature: see EmitProperty
+            sb.AppendLine($"{MI}{IfaceAcc(m)}{(m.IsStatic ? "static " : "")}{RetT(m)} {Esc(m.Name)}{tps}({ps}){Constraints(m.TypeParameters)} => throw new global::System.NotImplementedException(\"{FullName(m.ContainingType)}.{m.Name}\");");
+            return;
+        }
         if (explicitOf != null) { sb.AppendLine($"{MI}{RetT(m)} {T(explicitOf)}.{Esc(m.Name)}{tps}({ps}) => throw null;"); return; }
         if (m.MethodKind == MethodKind.UserDefinedOperator)
         {
@@ -387,6 +403,25 @@ static class Program
         string ext = m.IsExtensionMethod ? "this " : "";
         sb.AppendLine($"{MI}{Acc(m)} {mods}{RetT(m)} {Esc(m.Name)}{tps}({ext}{ps}){(ovr ? OverrideConstraints(m.TypeParameters) : Constraints(m.TypeParameters))}{body}");
     }
+
+    // Interface members: C# rejects a public member of a public interface whose signature uses a non-public type (CS0051), which
+    // Unity 6 metadata has (UnityEngine.Audio.ProcessorInstance.IContext uses the internal Unity.Audio.Handle).
+    static bool IfaceSigPublic(ISymbol s) => s.DeclaredAccessibility == Accessibility.Public && s switch
+    {
+        IMethodSymbol m => (m.ReturnsVoid || EffectivelyPublic(m.ReturnType)) && m.Parameters.All(p => EffectivelyPublic(p.Type)),
+        IPropertySymbol p => EffectivelyPublic(p.Type) && p.Parameters.All(x => EffectivelyPublic(x.Type)),
+        _ => true,
+    };
+    static string IfaceAcc(ISymbol s) => IfaceSigPublic(s) ? "" : "internal ";
+    static bool EffectivelyPublic(ITypeSymbol t) => t switch
+    {
+        IArrayTypeSymbol a => EffectivelyPublic(a.ElementType),
+        IPointerTypeSymbol p => EffectivelyPublic(p.PointedAtType),
+        ITypeParameterSymbol => true,
+        INamedTypeSymbol n => Chain(n) && n.TypeArguments.All(EffectivelyPublic),
+        _ => true,
+    };
+    static bool Chain(INamedTypeSymbol n) { for (var c = n; c != null; c = c.ContainingType) if (c.DeclaredAccessibility != Accessibility.Public) return false; return true; }
 
     static string RetT(IMethodSymbol m) => (m.ReturnsByRef ? "ref " : m.ReturnsByRefReadonly ? "ref readonly " : "") + (m.ReturnsVoid ? "void" : T(m.ReturnType));
 

@@ -25,6 +25,8 @@ decomp() { # list outDir nativeClass
 # math: redirects go to the hand-written MiniUnity.Native (NativeMath.cs); the generated list is only a reference
 decomp config/math_types.txt Engine/Decompiled/Math "$MU_CACHE/NativeMath.reference.cs"
 sed -i 's/^\tprivate int m_TangentMode;/\tinternal int m_TangentMode;/' Engine/Decompiled/Math/Keyframe.cs
+# Unity 6 string/span marshalling glue (ManagedSpanWrapper) → the same MiniUnity.Native redirects 2022.3 produced (LayerMask)
+python3 tools/unmarshal.py Engine/Decompiled/Math
 # other managed types: redirects to generated throwing stubs
 decomp config/managed_types.txt Engine/Decompiled/Managed Engine/Decompiled/Managed/_NativeRedirects.cs
 sed -i 's/public static partial class Native {/public static partial class NativeM {/' Engine/Decompiled/Managed/_NativeRedirects.cs

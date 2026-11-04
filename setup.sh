@@ -95,6 +95,8 @@ find_editor || { echo "Unity $VERSION Editor not found. Install it (Unity Hub), 
 DATA="$UNITY_EDITOR/Data"; [ -d "$DATA" ] || DATA="$UNITY_EDITOR"
 MANAGED="$DATA/Managed/UnityEngine"
 echo "using $UNITY_EDITOR (project wants $VERSION)"
+# version defines the engine is compiled with (UNITY_6000_3_OR_NEWER…): Engine/UnityVersion.props, read by MiniUnity.Common.props
+python3 "$MU_HOME/scripts/unity_defines.py" "$VERSION" --props "$MU_HOME/Engine/UnityVersion.props"
 
 # ---------------------------------------------------------------- 3. package sources (versions from the project's
 # packages-lock.json, else config/defaults.cfg); the test framework, NUnit and PostProcessing are fetched for the fixtures / selftest
@@ -106,11 +108,19 @@ lockver() {
   [ -n "$LOCK" ] && [ -f "$LOCK" ] && v=$(python3 -c "import json,sys;d=json.load(open(sys.argv[2]))['dependencies'];print(d.get(sys.argv[1],{}).get('version',''))" "$1" "$LOCK")
   [[ -n "$v" && "$v" != http* ]] && echo "$v" || default_of "$1"
 }
+BUILTIN="$DATA/Resources/PackageManager/BuiltInPackages"
+# version of a package the Editor ships in BuiltInPackages (empty when it does not ship it)
+builtinver() { python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" "$BUILTIN/$1/package.json" 2>/dev/null || true; }
 for p in com.unity.timeline com.unity.textmeshpro com.unity.cinemachine com.unity.test-framework com.unity.ext.nunit com.unity.postprocessing; do
   v=$(lockver $p)
   if [ "$(cat "$PKG/$p/.version" 2>/dev/null)" != "$v" ]; then
     echo "  $p@$v"
     rm -rf "$PKG/$p"; mkdir -p "$PKG/$p"
+    # Unity 6 ships TextMeshPro (an empty shell: its code moved into com.unity.ugui 2.x Runtime/TMP), the test framework
+    # and NUnit as built-in packages, which the registry does not serve: copy them from the Editor like uGUI.
+    if [ -n "$v" ] && [ "$(builtinver $p)" = "$v" ]; then
+      cp -r "$BUILTIN/$p/." "$PKG/$p/"; echo "$v" > "$PKG/$p/.version"; continue
+    fi
     tgz="$MU_CACHE/$p-$v.tgz"
     curl -sSfL "https://download.packages.unity.com/$p/-/$p-$v.tgz" -o "$tgz"
     # integrity: the registry publishes the tarball's SHA-1

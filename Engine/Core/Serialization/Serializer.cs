@@ -61,7 +61,7 @@ namespace MiniUnity
             [typeof(Rigidbody)] = (54, "Rigidbody"),
             [typeof(ArticulationBody)] = (171, "ArticulationBody"),
             [typeof(CharacterController)] = (143, "CharacterController"),
-            [typeof(PhysicMaterial)] = (134, "PhysicMaterial"),
+            [typeof(PhysicMaterial)] = (134, MiniUnity.UnityVersionNames.PhysicMaterial),
             [typeof(ConstantForce)] = (75, "ConstantForce"),
             [typeof(FixedJoint)] = (138, "FixedJoint"),
             [typeof(HingeJoint)] = (59, "HingeJoint"),

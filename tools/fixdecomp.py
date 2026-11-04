@@ -29,10 +29,19 @@ for f in sorted(os.listdir(src)):
         if m:
             ind,pre,rest=m.groups()
             name=re.search(r'(\w+)\s*\(',rest).group(1)
-            out.append(f'{ind}{pre}{rest} => MiniUnity.Native.{f[:-3]}_{name}({", ".join(argnames(rest))});')
+            args=argnames(rest); params=rest[rest.index("(")+1:rest.rindex(")")]
+            if not re.search(r'\bstatic\b',pre):
+                # instance extern (Unity 6 binds struct methods directly, 2022.3 went through static X_Injected(ref this)):
+                # the redirect takes the instance as its first parameter
+                tn=f[:-3]; isstruct=re.search(r'\bstruct\s+'+tn+r'\b',s) is not None
+                args=[('in this' if isstruct else 'this')]+args
+                params=(f'in {tn} _unity_self' if isstruct else f'{tn} _unity_self')+(', '+params if params.strip() else '')
+            out.append(f'{ind}{pre}{rest} => MiniUnity.Native.{f[:-3]}_{name}({", ".join(args)});')
             ret=rest[:rest.index(name)].strip()
-            natives.append(f'        public static {ret} {f[:-3]}_{name}({rest[rest.index("(")+1:rest.rindex(")")]}) => throw new System.NotImplementedException("{f[:-3]}.{name}");')
+            natives.append(f'        public static {ret} {f[:-3]}_{name}({params}) => throw new System.NotImplementedException("{f[:-3]}.{name}");')
             continue
+        # Unity 6 passes `ref this` to _Injected helpers from readonly members (CS1605 in C#): same reference, without the check
+        ln=ln.replace('(ref this,','(ref System.Runtime.CompilerServices.Unsafe.AsRef(in this),').replace('(ref this)','(ref System.Runtime.CompilerServices.Unsafe.AsRef(in this))')
         # strip [DefaultValue(..)] inline param attributes
         ln=re.sub(r'\[DefaultValue\([^\]]*\)\]\s*','',ln)
         out.append(ln)

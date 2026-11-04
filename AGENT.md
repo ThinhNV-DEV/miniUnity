@@ -65,9 +65,11 @@ compile tăng dần rồi nạp như `play`, cần Unity Editor; project lỗi c
 
 `compile` dựng lại đúng cách Unity chia assembly (`Assembly-CSharp`, `-firstpass`, `-Editor`, asmdef, asmref), dùng reference
 assembly của Editor đã cài (`UnityEngine.*`, `UnityEditor.*`, profile .NET Standard 2.1 / .NET 4.8) và define như Editor
-(`UNITY_2022_3_*`, `UNITY_EDITOR`, platform, Scripting Define Symbols trong PlayerSettings, input handler, `UNITY_INCLUDE_TESTS`…).
+(`UNITY_2022_3_*` / `UNITY_6000_x_*` theo `ProjectVersion.txt`, `UNITY_EDITOR`, platform, Scripting Define Symbols trong PlayerSettings, input handler, `UNITY_INCLUDE_TESTS`…).
 Compile tăng dần: assembly không đổi lấy từ cache (`Library/MiniUnity/ScriptAssemblies`). Khi một assembly lỗi, các assembly phụ
 thuộc được bỏ qua (`skippedBecause`) và DLL tốt gần nhất được giữ lại, giống `Library/ScriptAssemblies` của Unity.
+Assembly của package lỗi CS0619 `(UnityUpgradable) -> Tên` (API đổi tên) được compile lại sau khi đổi tên trong bộ nhớ, như API
+Updater của Unity làm với package (file trên đĩa giữ nguyên).
 
 Stamp của mỗi assembly dựa trên **nội dung** file nguồn (không phải mtime: `touch` hay đổi nhánh mà nội dung như cũ thì không build
 lại) và **API** của assembly nó tham chiếu (hash reference assembly; compile ở chế độ deterministic): sửa thân hàm chỉ build lại đúng

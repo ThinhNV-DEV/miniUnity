@@ -38,8 +38,12 @@ namespace MiniUnity {
         public static void Quaternion_SlerpUnclamped_Injected(ref Quaternion a, ref Quaternion b, float t, out Quaternion ret) { ret = MiniUnity.MathImpl.Slerp(a,b,t); }
         public static void Quaternion_Lerp_Injected(ref Quaternion a, ref Quaternion b, float t, out Quaternion ret) { ret = MiniUnity.MathImpl.Lerp(a,b,Mathf.Clamp01(t)); }
         public static void Quaternion_LerpUnclamped_Injected(ref Quaternion a, ref Quaternion b, float t, out Quaternion ret) { ret = MiniUnity.MathImpl.Lerp(a,b,t); }
+#if !UNITY_6000_0_OR_NEWER // Unity 6 keeps the name with `in` parameters: NativeMath6.cs
         public static void Quaternion_Internal_FromEulerRad_Injected(ref Vector3 euler, out Quaternion ret) { ret = MiniUnity.MathImpl.FromEulerRad(euler); }
+#endif
+#if !UNITY_6000_0_OR_NEWER // Unity 6 keeps the name with `in` parameters: NativeMath6.cs
         public static void Quaternion_Internal_ToEulerRad_Injected(ref Quaternion rotation, out Vector3 ret) { ret = MiniUnity.MathImpl.ToEulerRad(rotation); }
+#endif
         public static void Quaternion_Internal_ToAxisAngleRad_Injected(ref Quaternion q, out Vector3 axis, out float angle) { var n=Quaternion.Normalize(q); angle=2f*(float)System.Math.Acos(Mathf.Clamp(n.w,-1,1)); float s=(float)System.Math.Sqrt(1-n.w*n.w); axis = s<1e-6f? Vector3.right : new Vector3(n.x/s,n.y/s,n.z/s); }
         public static void Quaternion_AngleAxis_Injected(float angle, ref Vector3 axis, out Quaternion ret) { var ax=axis.normalized; float h=angle*Mathf.Deg2Rad*0.5f; float s=(float)System.Math.Sin(h); ret=new Quaternion(ax.x*s,ax.y*s,ax.z*s,(float)System.Math.Cos(h)); }
         public static void Quaternion_LookRotation_Injected(ref Vector3 forward, ref Vector3 upwards, out Quaternion ret) { ret = MiniUnity.MathImpl.LookRotation(forward,upwards); }
